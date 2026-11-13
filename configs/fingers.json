@@ -1,0 +1,10 @@
+{
+  "joint_velocity_limit": 1.5,
+  "thumb_open": [0.0, 0.0, 0.0, 0.0],
+  "thumb_closed": {
+    "right": [0.0, -1.0, 0.9, 0.9],
+    "left": [0.0, 1.0, -0.9, -0.9]
+  },
+  "four_fingers_open": [0.0, 0.0, 0.0, 0.0],
+  "four_fingers_closed": [0.0, 1.35, 1.0, 0.7]
+}

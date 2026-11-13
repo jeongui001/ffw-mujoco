@@ -83,12 +83,85 @@ class RobotControlTests(unittest.TestCase):
             with self.subTest(side=side):
                 session = ControlSession(self.robot)
                 lift_start = session.position_target[-1]
+                session.set_finger_targets(side, 0.7, 0.8)
+                other = "left" if side == "right" else "right"
+                session.set_finger_targets(other, 0.4, 0.6)
                 target = session.targets[side].position + [0.03, 0.01, 0.03]
                 session.set_target(side, target, [5, -5, 5])
                 self.assertEqual(session.mode, "ARM")
                 self.run_ticks(session, 180, check_rates=True)
                 self.assert_reached(session)
                 self.assertAlmostEqual(session.position_target[-1], lift_start, places=6)
+                curls = session.data.qpos[session.fingers.qpos_ids[side]][5::4]
+                self.assertTrue(np.all(curls > 0.5))
+
+    def test_finger_groups_close_and_reopen_independently_on_both_hands(self):
+        for side in ("right", "left"):
+            with self.subTest(side=side):
+                session = ControlSession(self.robot)
+                active_before = session.active_side
+                pose_targets = {s: p.copy() for s, p in session.targets.items()}
+                revision_before = session._plan_revision
+                session.set_finger_targets(side, 1, 0)
+                self.assertEqual(session.active_side, active_before)
+                self.assertEqual(session._plan_revision, revision_before)
+                self.run_ticks(session, 120)
+                positions = session.data.qpos[session.fingers.qpos_ids[side]]
+                # Thumb yaw is mirrored, while the other four digits stay open.
+                yaw_sign = -1 if side == "right" else 1
+                self.assertGreater(yaw_sign * positions[1], 0.5)
+                self.assertLess(np.max(np.abs(positions[4:])), 0.08)
+                other = "left" if side == "right" else "right"
+                other_positions = session.data.qpos[session.fingers.qpos_ids[other]]
+                self.assertLess(np.max(np.abs(other_positions)), 0.08)
+
+                session.set_finger_targets(side, 1, 1)
+                self.run_ticks(session, 150)
+                curled = session.data.qpos[session.fingers.qpos_ids[side]].copy()
+                self.assertTrue(np.all(curled[5::4] > 0.8))
+                forces = session.data.actuator_force[session.fingers.actuator_ids[side]]
+                limits = self.robot.model.actuator_forcerange[session.fingers.actuator_ids[side]]
+                self.assertTrue(np.all(forces >= limits[:, 0] - 1e-8))
+                self.assertTrue(np.all(forces <= limits[:, 1] + 1e-8))
+
+                session.set_finger_targets(side, 0, 0)
+                self.run_ticks(session, 150)
+                reopened = session.data.qpos[session.fingers.qpos_ids[side]]
+                self.assertLess(np.max(np.abs(reopened)), 0.15)
+                self.assertEqual(session.active_side, active_before)
+                for hand, target in pose_targets.items():
+                    np.testing.assert_array_equal(session.targets[hand].position, target.position)
+                    np.testing.assert_array_equal(session.targets[hand].rotation, target.rotation)
+                self.assert_reached(session)
+
+    def test_finger_commands_are_rate_limited_and_do_not_teleport_joints(self):
+        session = ControlSession(self.robot)
+        dt = self.robot.model.opt.timestep
+        actual_before = session.data.qpos.copy()
+        for side in ("right", "left"):
+            session.set_finger_targets(side, 1, 1)
+        for _ in range(40):
+            old = {s: q.copy() for s, q in session.fingers.commanded_positions.items()}
+            session.fingers.apply(session.data, dt)
+            for side, command in session.fingers.commanded_positions.items():
+                self.assertLessEqual(np.max(np.abs(command - old[side])),
+                                     session.fingers.velocity_limit * dt + 1e-12)
+                limits = session.fingers.limits[side]
+                self.assertTrue(np.all(command >= limits[:, 0]))
+                self.assertTrue(np.all(command <= limits[:, 1]))
+        np.testing.assert_array_equal(session.data.qpos, actual_before)
+
+    def test_invalid_finger_inputs_leave_previous_targets_unchanged(self):
+        session = ControlSession(self.robot)
+        session.set_finger_targets("right", 0.3, 0.7)
+        for side, thumb, fingers in (("right", -0.1, 0), ("right", 0, 1.1),
+                                     ("left", np.nan, 0), ("left", 0, np.inf),
+                                     ("unknown", 0, 0)):
+            with self.subTest(side=side, thumb=thumb, fingers=fingers):
+                with self.assertRaises(ValueError):
+                    session.set_finger_targets(side, thumb, fingers)
+        np.testing.assert_array_equal(session.fingers.targets["right"], [0.3, 0.7])
+        np.testing.assert_array_equal(session.fingers.targets["left"], [0, 0])
 
     def test_each_lift_mode_holds_opposite_hand_height(self):
         for side in ("right", "left"):

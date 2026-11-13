@@ -41,6 +41,11 @@ class Robot:
                 name=f"{side}_palm", pos=[0, 0, 0.06],
                 size=[0.012, 0, 0], rgba=[0.1, 0.7, 0.9, 1],
             )
+            # Convex palm/root meshes overlap even in the open pose. Exclude
+            # only these structural neighbours; distal and object contacts remain.
+            prefix = "r" if side == "right" else "l"
+            for link in (2, 6, 10, 14, 18):
+                spec.add_exclude(bodyname1=body, bodyname2=f"finger_{prefix}_link{link}")
         self.model = spec.compile()
         self.model.opt.timestep = self.config["physics_dt"]
         names = (mapping["hands"]["right"]["arm_joints"]

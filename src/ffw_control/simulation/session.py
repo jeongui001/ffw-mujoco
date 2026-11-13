@@ -8,6 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from ffw_control.control.dynamics.servo import JointServo
+from ffw_control.control.fingers import FingerController
 from ffw_control.control.hierarchy.qp import QPFailure
 from ffw_control.control.ik.differential import DifferentialIK
 from ffw_control.robots.model import Pose, Robot
@@ -19,6 +20,7 @@ class ControlSession:
         self.data = self.robot.new_data()
         self.reference = self.robot.new_data()
         self.servo = JointServo(self.robot, self.data)
+        self.fingers = FingerController(self.robot, self.data)
         self.ik = DifferentialIK(self.robot)
         self.initial_poses = {s: self.robot.pose(self.data, s) for s in ("right", "left")}
         self.targets = {s: p.copy() for s, p in self.initial_poses.items()}
@@ -38,6 +40,10 @@ class ControlSession:
         self._pending_plan = None
         self._plan_revision = 0
         self._future_revision = 0
+
+    def set_finger_targets(self, side, thumb, four_fingers):
+        # Finger input does not change the active hand or replan its pose.
+        self.fingers.set_targets(side, thumb, four_fingers)
 
     def set_target(self, side, position, rpy_degrees, asynchronous=False):
         self.robot.arm_slice(side)
@@ -143,6 +149,7 @@ class ControlSession:
         for _ in range(substeps):
             mujoco.mj_step1(self.robot.model, self.data)
             self.servo.apply(self.data, self.position_target, self.previous_velocity)
+            self.fingers.apply(self.data, self.robot.model.opt.timestep)
             mujoco.mj_step2(self.robot.model, self.data)
         mujoco.mj_forward(self.robot.model, self.data)
         if self.mode != "STOP":
@@ -169,4 +176,8 @@ class ControlSession:
             "sim_time": float(self.data.time), "wall_time": time.monotonic() - self.started_at,
             "compute_ms": self.last_loop_seconds * 1000, "saturated_actuators": self.servo.saturated,
             "planning": self._future is not None,
+            "finger_targets": {
+                side: {"thumb": float(values[0]), "four_fingers": float(values[1])}
+                for side, values in self.fingers.targets.items()
+            },
         }
