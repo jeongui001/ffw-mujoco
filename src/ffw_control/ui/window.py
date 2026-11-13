@@ -1,4 +1,4 @@
-"""GLFW/MuJoCo view with panel 1 and panel 3 target sliders."""
+"""GLFW/MuJoCo view with hand pose and finger panels 1-4."""
 
 import struct
 import time
@@ -95,7 +95,7 @@ class ControlWindow:
         session = self.session
         flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE
         imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, 260)
+        imgui.set_next_window_size(self.SIDEBAR, 220)
         imgui.begin(f"Panel {number} | {side.title()} hand", flags=flags)
         imgui.text_colored("ACTIVE" if session.active_side == side else "Height held",
                            0.35, 0.8, 1.0)
@@ -120,20 +120,30 @@ class ControlWindow:
         if changed:
             session.set_target(side, position, angles, asynchronous=True)
 
-    def placeholder(self, number, side, top):
+    def finger_panel(self, side, number, top):
         imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, 55)
-        imgui.begin(f"Panel {number} | {side} fingers", flags=(imgui.WINDOW_NO_MOVE
+        imgui.set_next_window_size(self.SIDEBAR, 105)
+        imgui.begin(f"Panel {number} | {side.title()} fingers", flags=(imgui.WINDOW_NO_MOVE
                     | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
-        imgui.text_disabled("Planned - fingers hold initial pose")
+        imgui.text("0 = open / 1 = closed")
+        values = self.session.fingers.targets[side].copy()
+        changed = False
+        imgui.push_item_width(215)
+        for index, label in enumerate(("Thumb", "Four fingers")):
+            edited, values[index] = imgui.slider_float(label, float(values[index]), 0, 1, format="%.2f")
+            values[index] = np.clip(values[index], 0, 1)
+            changed |= edited
+        imgui.pop_item_width()
         imgui.end()
+        if changed:
+            self.session.set_finger_targets(side, *values)
 
     def panels(self):
         self.hand_panel("right", 1, 0)
-        self.placeholder(2, "Right", 262)
-        self.hand_panel("left", 3, 319)
-        self.placeholder(4, "Left", 581)
-        imgui.set_next_window_position(0, 638)
+        self.finger_panel("right", 2, 222)
+        self.hand_panel("left", 3, 329)
+        self.finger_panel("left", 4, 551)
+        imgui.set_next_window_position(0, 658)
         imgui.set_next_window_size(self.SIDEBAR, 150)
         imgui.begin("Controls", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
         if imgui.button("Resume" if self.paused else "Pause"):

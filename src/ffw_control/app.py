@@ -1,4 +1,4 @@
-"""Run the panel 1/3 application or a bounded headless controller session."""
+"""Run hand pose/finger panels 1-4 or a bounded headless controller session."""
 
 import argparse
 import json
@@ -21,6 +21,10 @@ def main():
     parser.add_argument("--side", choices=("right", "left"), default="right")
     parser.add_argument("--offset", nargs=3, type=float, metavar=("X", "Y", "Z"))
     parser.add_argument("--rpy", nargs=3, type=float, default=[0, 0, 0], metavar=("ROLL", "PITCH", "YAW"))
+    parser.add_argument("--right-fingers", nargs=2, type=float, default=[0, 0], metavar=("THUMB", "FOUR_FINGERS"),
+                        help="Right finger targets: 0=open, 1=closed")
+    parser.add_argument("--left-fingers", nargs=2, type=float, default=[0, 0], metavar=("THUMB", "FOUR_FINGERS"),
+                        help="Left finger targets: 0=open, 1=closed")
     parser.add_argument("--frames", type=int, default=0, help="Close GUI after this many frames; 0 keeps it open")
     parser.add_argument("--screenshot", help="Save PNG on the final frame; requires --frames")
     args = parser.parse_args()
@@ -29,6 +33,11 @@ def main():
     if args.screenshot and not args.frames:
         parser.error("--screenshot requires --frames")
     session = ControlSession()
+    try:
+        session.set_finger_targets("right", *args.right_fingers)
+        session.set_finger_targets("left", *args.left_fingers)
+    except ValueError as error:
+        parser.error(str(error))
     if args.offset is not None or any(args.rpy):
         target = session.targets[args.side].position + (args.offset or [0, 0, 0])
         session.set_target(args.side, target, args.rpy)

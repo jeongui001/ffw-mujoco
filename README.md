@@ -4,7 +4,7 @@ MuJoCo에서 **패널 1(오른손)**과 **패널 3(왼손)**의 각 6개 슬라�
 공통 제약 미분 IK/HQP가 팔을 먼저 사용하고, 필요한 경우 반대 손 높이를 유지하며 공유 리프트를 움직입니다.
 관절 목표는 힘 제한을 적용한 PD와 중력·코리올리·원심력 보상으로 추종합니다.
 
-이번 구현은 양손 자세 제어입니다. 손가락은 초기 자세를 유지합니다.
+**패널 2(오른손)**와 **패널 4(왼손)**에서는 엄지와 나머지 네 손가락을 각각 접고 펼 수 있습니다.
 정육면체·캔·파지 제어·충돌 회피와 조인트 직접 제어 패널은 후속 구현 범위입니다.
 
 ## 실행
@@ -36,6 +36,9 @@ VS Code 인터프리터는 `requirements-ffw/bin/python`을 선택합니다.
 ## 조작
 
 - 왼쪽 위 패널 1은 오른손, 패널 3은 왼손입니다. 각각 X/Y/Z와 Roll/Pitch/Yaw를 조절합니다.
+- 패널 2·4의 `Thumb`는 엄지, `Four fingers`는 나머지 네 손가락입니다.
+  `0`은 편 자세, `1`은 설정된 접은 자세이며 중간값으로 접는 정도를 조절합니다.
+  손가락 입력은 활성 손이나 팔 목표를 바꾸지 않으므로 양손을 독립적으로 조절할 수 있습니다.
 - X/Y/Z는 월드 좌표의 절대 위치(m)입니다. 초기 베이스는 고정되어 있습니다.
 - 회전은 초기 손 방향에 대한 변화량(도)입니다. 월드 고정축 X/Y/Z의 회전을 순서대로 적용합니다.
 - 마지막으로 조작한 손이 활성 손입니다. 반대 손은 그 시점의 실제 높이를 유지합니다.
@@ -64,6 +67,9 @@ python -m ffw_control.app --headless --seconds 6 --offset 0 0 -0.10
 
 # 왼손 조작
 python -m ffw_control.app --headless --seconds 4 --side left --offset 0.03 0 0.03
+
+# 양손 손가락: 엄지와 나머지 네 손가락의 접는 정도
+python -m ffw_control.app --headless --seconds 3 --right-fingers 1 1 --left-fingers 0.6 0.8
 
 # 회귀 테스트
 python -m unittest discover -s tests -v
@@ -94,11 +100,13 @@ mujoco_proj/
 ├── robotis_ffw/                  # 기존 XML·메쉬 (원본 유지)
 ├── configs/
 │   ├── robot.json                # 로봇 이름·경로 매핑
-│   └── control.json              # 초기 자세, 제한, 오차, 제어 게인
+│   ├── control.json              # 초기 자세, 제한, 오차, 제어 게인
+│   └── fingers.json              # 손가락 펴기/접기 자세 및 명령 속도 제한
 ├── src/ffw_control/
 │   ├── app.py                    # GUI/headless 진입점
 │   ├── robots/model.py           # 고정 베이스 모델·손 기준점·Jacobian
 │   ├── control/
+│   │   ├── fingers.py            # 엄지/네 손가락 독립 제어
 │   │   ├── hierarchy/qp.py       # 제약 QP 및 null space 계층
 │   │   ├── ik/differential.py    # 미분 IK·팔 도달성 검사
 │   │   └── dynamics/servo.py     # 힘 제한 PD 및 bias 보상
@@ -116,4 +124,5 @@ mujoco_proj/
 예정된 전체 기능은 [사용자 기능 명세](docs/functional_spec.md),
 모듈의 역할은 [구조 설계](docs/architecture.md),
 현재 제어 방식과 제한은 [패널 1·3 제어 문서](docs/panel1_control_design.md)를 참고하세요.
+손가락의 조작과 설정은 [패널 2·4 제어 문서](docs/finger_control.md)에 정리했습니다.
 기존 `robotis_ffw/README.md`는 이전 예제 안내이므로 현재 실행 방법은 이 문서를 기준으로 합니다.
