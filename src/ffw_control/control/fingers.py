@@ -21,6 +21,7 @@ class FingerController:
         self.opened = {}
         self.closed = {}
         self.commanded_positions = {}
+        self.held_positions = {side: None for side in self.targets}
         for side, prefix in (("right", "r"), ("left", "l")):
             names = [f"finger_{prefix}_joint{index}" for index in range(1, 21)]
             joint_ids = np.array([robot.model.joint(name).id for name in names])
@@ -43,12 +44,29 @@ class FingerController:
         if values.shape != (2,) or not np.isfinite(values).all() or np.any((values < 0) | (values > 1)):
             raise ValueError("Finger targets must be finite values from 0 (open) to 1 (closed)")
         self.targets[side] = values.copy()
+        self.held_positions[side] = None
+
+    def capture(self, data):
+        """Hold individual manual positions until the next preset slider input."""
+        for side in self.targets:
+            measured = data.qpos[self.qpos_ids[side]].copy()
+            measured = np.clip(measured, self.limits[side][:, 0], self.limits[side][:, 1])
+            self.commanded_positions[side] = measured.copy()
+            self.held_positions[side] = measured
+            for index, group in enumerate((slice(0, 4), slice(4, 20))):
+                span = self.closed[side][group] - self.opened[side][group]
+                length_squared = np.dot(span, span)
+                fraction = (np.dot(measured[group] - self.opened[side][group], span) / length_squared
+                            if length_squared > 0 else 0.0)
+                self.targets[side][index] = np.clip(fraction, 0, 1)
 
     def apply(self, data, dt):
         for side, values in self.targets.items():
             # Thumb joints 1-4; four fingers each have four joints (5-20).
             fraction = np.repeat(values, [4, 16])
             goal = self.opened[side] + fraction * (self.closed[side] - self.opened[side])
+            if self.held_positions[side] is not None:
+                goal = self.held_positions[side]
             command = self.commanded_positions[side]
             command += np.clip(goal - command, -self.velocity_limit * dt, self.velocity_limit * dt)
             data.ctrl[self.actuator_ids[side]] = command

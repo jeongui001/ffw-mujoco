@@ -11,6 +11,7 @@ from scipy.spatial.transform import Rotation
 from ffw_control.control.hierarchy.qp import QPFailure, solve_hierarchy
 from ffw_control.robots.model import Pose, Robot, pose_error
 from ffw_control.simulation.session import ControlSession
+from ffw_control.simulation.timing import LoopTiming
 
 
 class HierarchyTests(unittest.TestCase):
@@ -35,6 +36,24 @@ class HierarchyTests(unittest.TestCase):
         current = Pose(np.zeros(3), Rotation.from_euler("z", 179, degrees=True).as_matrix())
         target = Pose(np.zeros(3), Rotation.from_euler("z", -179, degrees=True).as_matrix())
         self.assertAlmostEqual(np.rad2deg(np.linalg.norm(pose_error(current, target)[3:])), 2.0)
+
+
+class TimingTests(unittest.TestCase):
+    def test_frequency_uses_start_intervals_and_ema(self):
+        timing = LoopTiming(0.1)
+        timing.record(10.0)
+        self.assertEqual(timing.frequency, 0)
+        timing.record(10.02)
+        self.assertAlmostEqual(timing.frequency, 50)
+        timing.record(10.06)
+        self.assertAlmostEqual(timing.frequency, 25)
+        self.assertAlmostEqual(timing.ema, 47.5)
+        timing.reset()
+        timing.record(100.0)
+        self.assertEqual(timing.frequency, 0)
+        timing.record(100.04)
+        self.assertAlmostEqual(timing.frequency, 25)
+        self.assertAlmostEqual(timing.ema, 25)
 
 
 class RobotControlTests(unittest.TestCase):
@@ -209,6 +228,130 @@ class RobotControlTests(unittest.TestCase):
         session = ControlSession(self.robot)
         with self.assertRaises(ValueError):
             session.set_target("right", [np.nan, 0, 0], [0, 0, 0])
+
+    def test_joint_monitor_covers_every_joint_and_uses_measured_state(self):
+        session = ControlSession(self.robot)
+        rows = session.joint_states()
+        self.assertEqual(len(rows), self.robot.model.njnt)
+        self.assertEqual(len({row["name"] for row in rows}), self.robot.model.njnt)
+        for row in rows:
+            joint = self.robot.model.joint(row["name"])
+            self.assertEqual(row["position"], session.data.qpos[joint.qposadr[0]])
+            self.assertEqual(row["velocity"], session.data.qvel[joint.dofadr[0]])
+            self.assertEqual(row["force"], session.data.qfrc_actuator[joint.dofadr[0]])
+        drives = [row for row in rows if row["velocity_controlled"]]
+        self.assertEqual(len(drives), 3)
+        self.assertTrue(all("wheel_drive" in row["name"] for row in drives))
+
+    def test_manual_joints_move_and_return_to_ik_without_restoring_old_goals(self):
+        session = ControlSession(self.robot)
+        before = session.data.qpos.copy()
+        session.set_control_mode("JOINT")
+        np.testing.assert_array_equal(session.data.qpos, before)
+        targets = {"head_joint1": 0.2, "arm_r_joint4": -0.7,
+                   "finger_r_joint6": 0.8, "left_wheel_drive_joint": 1.5}
+        for name, value in targets.items():
+            session.set_joint_target(name, value)
+        old_commands = session.joints.commands.copy()
+        with patch.object(session.ik, "velocity", side_effect=AssertionError("IK ran in joint mode")), \
+                patch.object(session.fingers, "apply", side_effect=AssertionError("Presets ran in joint mode")):
+            for _ in range(130):
+                session.tick()
+                change = np.abs(session.joints.commands - old_commands)
+                allowed = session.joints.position_speeds * self.robot.config["control_dt"]
+                allowed[session.joints.velocity_controlled] = (self.robot.config["wheel_acceleration_limit"]
+                                                               * self.robot.config["control_dt"])
+                self.assertTrue(np.all(change <= allowed + 1e-10))
+                old_commands = session.joints.commands.copy()
+        rows = {row["name"]: row for row in session.joint_states()}
+        self.assertGreater(rows["head_joint1"]["position"], 0.15)
+        self.assertGreater(rows["arm_r_joint4"]["position"], -0.75)
+        self.assertGreater(rows["finger_r_joint6"]["position"], 0.6)
+        self.assertGreater(rows["left_wheel_drive_joint"]["velocity"], 0.05)
+        self.assertIsNone(session.metrics()["ik_err"])
+        measured = session.data.qpos.copy()
+        hand_poses = {s: self.robot.pose(session.data, s) for s in session.targets}
+        session.set_control_mode("IK")
+        np.testing.assert_array_equal(session.data.qpos, measured)
+        for side in hand_poses:
+            np.testing.assert_array_equal(session.targets[side].position, hand_poses[side].position)
+            self.assertIsNotNone(session.fingers.held_positions[side])
+        self.run_ticks(session, 100)
+        self.assert_reached(session)
+        finger = self.robot.model.joint("finger_r_joint6").qposadr[0]
+        self.assertLess(abs(session.data.qpos[finger] - measured[finger]), 0.04)
+        drive = session.joints.joint_by_name["left_wheel_drive_joint"]
+        self.assertEqual(session.joints.commands[drive], 0)
+        session.set_finger_targets("right", 0.5, 0.5)
+        self.assertIsNone(session.fingers.held_positions["right"])
+        self.assertIsNotNone(session.fingers.held_positions["left"])
+
+    def test_joint_mode_blocks_conflicting_inputs_and_rejects_invalid_values(self):
+        session = ControlSession(self.robot)
+        with self.assertRaises(ValueError):
+            session.set_joint_target("head_joint1", 0.1)
+        session.set_control_mode("JOINT")
+        for name, value in (("head_joint1", 10), ("lift_joint", np.nan),
+                            ("left_wheel_drive_joint", 50), ("unknown", 0)):
+            with self.assertRaises(ValueError):
+                session.set_joint_target(name, value)
+        with self.assertRaises(ValueError):
+            session.set_target("right", [0, 0, 0.5], [0, 0, 0])
+        with self.assertRaises(ValueError):
+            session.set_finger_targets("right", 1, 1)
+        with self.assertRaises(ValueError):
+            session.set_control_mode("unknown")
+        self.assertEqual(session.control_mode, "JOINT")
+
+    def test_right_ik_metric_does_not_follow_active_left_hand(self):
+        session = ControlSession(self.robot)
+        session.set_target("left", session.targets["left"].position + [0.02, 0, 0.03], [0, 0, 0])
+        metrics = session.metrics()
+        self.assertEqual(metrics["active_hand"], "left")
+        self.assertGreater(metrics["ik_position_error_m"], 0.03)
+        self.assertLess(metrics["ik_err"], 1e-8)
+
+    def test_pause_freezes_simulation_but_wall_time_continues(self):
+        session = ControlSession(self.robot)
+        self.run_ticks(session, 2)
+        frozen_time = session.data.time
+        frozen_state = session.data.qpos.copy()
+        session.set_paused(True)
+        with patch("ffw_control.simulation.session.time.monotonic", return_value=session.started_at + 10):
+            session.tick()
+            metrics = session.metrics()
+        self.assertEqual(session.data.time, frozen_time)
+        np.testing.assert_array_equal(session.data.qpos, frozen_state)
+        self.assertEqual(metrics["wall_time"], 10)
+        self.assertEqual(metrics["loop_freq"], 0)
+        self.assertEqual(metrics["loop_freq_ema"], 0)
+        session.set_paused(False)
+        session.tick()
+        self.assertGreater(session.data.time, frozen_time)
+        self.assertEqual(session.timing.frequency, 0)
+
+    def test_pending_ik_plan_cannot_override_manual_mode(self):
+        session = ControlSession(self.robot)
+        release = Event()
+
+        def feasibility(*args):
+            release.wait(5)
+            return False
+
+        try:
+            with patch.object(session.ik, "arm_feasible", side_effect=feasibility):
+                session.set_target("right", session.targets["right"].position, [0, 0, 0], asynchronous=True)
+                session.set_control_mode("JOINT")
+                session.set_joint_target("head_joint1", 0.2)
+                release.set()
+                session._future.result(timeout=5)
+                session.tick()
+                self.assertEqual(session.mode, "JOINT")
+                self.assertEqual(session.control_mode, "JOINT")
+                self.assertFalse(session.metrics()["planning"])
+        finally:
+            release.set()
+            session.close()
 
     def test_stale_background_plan_cannot_enable_lift_for_a_new_target(self):
         session = ControlSession(self.robot)
