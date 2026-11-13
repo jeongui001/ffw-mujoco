@@ -56,6 +56,7 @@ mujoco_proj/
 ├── outputs/                  # 생성 로그, 그래프, 영상 (Git 제외)
 └── docs/
     ├── functional_spec.md    # 사용자 기능, 패널 구성, 장면 요구사항
+    ├── panel1_control_design.md # 오른손 IK 후보 및 제어 추천안
     └── architecture.md       # 모듈 책임, 데이터 흐름, 후속 설계 항목
 ```
 
@@ -65,3 +66,4 @@ mujoco_proj/
 프로젝트 Markdown 문서는 `docs/`에 모읍니다.
 예정된 기능은 [사용자 기능 명세](docs/functional_spec.md),
 설계 의도와 다음 단계는 [구조 설계 문서](docs/architecture.md)를 참고하세요.
+패널 1의 IK 후보와 제어 추천안은 [패널 1 알고리즘 검토](docs/panel1_control_design.md)에 정리합니다.
