@@ -1,6 +1,8 @@
 """Regression checks for task priority, arm-first policy, and physical tracking."""
 
 import unittest
+from threading import Event
+from unittest.mock import patch
 
 import mujoco
 import numpy as np
@@ -134,6 +136,60 @@ class RobotControlTests(unittest.TestCase):
         session = ControlSession(self.robot)
         with self.assertRaises(ValueError):
             session.set_target("right", [np.nan, 0, 0], [0, 0, 0])
+
+    def test_stale_background_plan_cannot_enable_lift_for_a_new_target(self):
+        session = ControlSession(self.robot)
+        started, release = Event(), Event()
+        calls = []
+
+        def feasibility(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                started.set()
+                release.wait(5)
+                return False
+            return True
+
+        try:
+            with patch.object(session.ik, "arm_feasible", side_effect=feasibility):
+                target = session.targets["right"].position.copy()
+                session.set_target("right", target + [0, 0, -0.1], [0, 0, 0], asynchronous=True)
+                self.assertTrue(started.wait(5))
+                session.set_target("right", target + [0.01, 0, 0], [0, 0, 0], asynchronous=True)
+                release.set()
+                session._future.result(timeout=5)
+                session.tick()
+                self.assertEqual(session.mode, "ARM")
+                session._future.result(timeout=5)
+                session.tick()
+                self.assertTrue(session.arm_solution_available)
+                self.assertEqual(session.mode, "ARM")
+                self.assertEqual(len(calls), 2)
+        finally:
+            release.set()
+            session.close()
+
+    def test_pending_plan_cannot_restart_a_stopped_controller(self):
+        session = ControlSession(self.robot)
+        release = Event()
+
+        def feasibility(*args):
+            release.wait(5)
+            return True
+
+        try:
+            with patch.object(session.ik, "arm_feasible", side_effect=feasibility):
+                session.set_target("right", session.targets["right"].position, [0, 0, 0], asynchronous=True)
+                with patch.object(session.ik, "velocity", side_effect=QPFailure("test failure")):
+                    session.tick()
+                self.assertEqual(session.mode, "STOP")
+                release.set()
+                session._future.result(timeout=5)
+                session.tick()
+                self.assertEqual(session.mode, "STOP")
+        finally:
+            release.set()
+            session.close()
 
 
 if __name__ == "__main__":

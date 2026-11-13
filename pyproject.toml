@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["dependencies"]
 
+[project.scripts]
+ffw-control = "ffw_control.app:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
