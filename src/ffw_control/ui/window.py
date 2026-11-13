@@ -1,4 +1,4 @@
-"""GLFW/MuJoCo view with hand pose and finger panels 1-4."""
+"""GLFW/MuJoCo view with hand, joint, and simulation panels 1-6."""
 
 import struct
 import time
@@ -60,6 +60,7 @@ class ControlWindow:
         self.camera.elevation = -20
         self.cursor = glfw.get_cursor_pos(self.window)
         self.paused = False
+        self.joint_filter = ""
         glfw.set_scroll_callback(self.window, self.scroll)
         style = imgui.get_style()
         style.window_rounding = 5
@@ -68,6 +69,7 @@ class ControlWindow:
         style.colors[imgui.COLOR_FRAME_BACKGROUND] = (0.16, 0.19, 0.22, 1)
         style.colors[imgui.COLOR_SLIDER_GRAB] = (0.2, 0.6, 0.95, 1)
         style.colors[imgui.COLOR_SLIDER_GRAB_ACTIVE] = (0.4, 0.75, 1, 1)
+        style.colors[imgui.COLOR_PLOT_HISTOGRAM] = (0.2, 0.6, 0.95, 1)
 
     def scroll(self, window, x, y):
         self.renderer.scroll_callback(window, x, y)
@@ -95,8 +97,15 @@ class ControlWindow:
         session = self.session
         flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE
         imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, 220)
+        imgui.set_next_window_size(self.SIDEBAR, 205)
         imgui.begin(f"Panel {number} | {side.title()} hand", flags=flags)
+        if session.control_mode == "JOINT":
+            imgui.text_wrapped("Hand targets paused. Disable Direct joints in panel 5 to resume.")
+            measured = session.robot.pose(session.data, side).position
+            for label, value in zip(("X", "Y", "Z"), measured):
+                imgui.text(f"Actual {label}: {value:.3f} m")
+            imgui.end()
+            return
         imgui.text_colored("ACTIVE" if session.active_side == side else "Height held",
                            0.35, 0.8, 1.0)
         position = session.targets[side].position.copy()
@@ -122,10 +131,15 @@ class ControlWindow:
 
     def finger_panel(self, side, number, top):
         imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, 105)
+        imgui.set_next_window_size(self.SIDEBAR, 95)
         imgui.begin(f"Panel {number} | {side.title()} fingers", flags=(imgui.WINDOW_NO_MOVE
                     | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
-        imgui.text("0 = open / 1 = closed")
+        if self.session.control_mode == "JOINT":
+            imgui.text_wrapped("Finger presets paused. Individual joints are controlled in panel 5.")
+            imgui.end()
+            return
+        held = self.session.fingers.held_positions[side] is not None
+        imgui.text("Individual pose held" if held else "0 = open / 1 = closed")
         values = self.session.fingers.targets[side].copy()
         changed = False
         imgui.push_item_width(215)
@@ -138,40 +152,106 @@ class ControlWindow:
         if changed:
             self.session.set_finger_targets(side, *values)
 
-    def panels(self):
-        self.hand_panel("right", 1, 0)
-        self.finger_panel("right", 2, 222)
-        self.hand_panel("left", 3, 329)
-        self.finger_panel("left", 4, 551)
-        imgui.set_next_window_position(0, 658)
-        imgui.set_next_window_size(self.SIDEBAR, 150)
-        imgui.begin("Controls", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
+    def joint_panel(self, top):
+        height = glfw.get_window_size(self.window)[1]
+        imgui.set_next_window_position(0, top)
+        imgui.set_next_window_size(self.SIDEBAR, max(140, height - top))
+        imgui.begin("Panel 5 | Joint monitor", flags=(imgui.WINDOW_NO_MOVE
+                    | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
         if imgui.button("Resume" if self.paused else "Pause"):
             self.paused = not self.paused
+            self.session.set_paused(self.paused)
         imgui.same_line()
         if imgui.button("Reset"):
             # Recreate from the original model, not the already-converted motors.
             from ffw_control.simulation.session import ControlSession
             self.session.close()
             self.session = ControlSession()
-        imgui.text_wrapped("Last edited hand follows its target. The other hand keeps its height.")
-        imgui.text("Drag: orbit | Right drag: pan | Wheel: zoom")
+            self.paused = False
+        imgui.same_line()
+        changed, direct = imgui.checkbox("Direct joints", self.session.control_mode == "JOINT")
+        if changed:
+            self.session.set_control_mode("JOINT" if direct else "IK")
+        direct = self.session.control_mode == "JOINT"
+        imgui.text("JOINT: Cartesian holds off" if direct else
+                   f"{self.session.robot.model.njnt} joints | hover: position / speed / force")
+        imgui.push_item_width(245)
+        _, self.joint_filter = imgui.input_text("Filter", self.joint_filter, 128)
+        imgui.pop_item_width()
+        imgui.begin_child("Joint rows", 0, 0)
+        count = 0
+        for state in self.session.joint_states():
+            if self.joint_filter.lower() not in state["name"].lower():
+                continue
+            count += 1
+            imgui.push_id(state["name"])
+            color = ((0.9, 0.5, 0.5) if "_r_" in state["name"] else
+                     (0.4, 0.8, 0.6) if "_l_" in state["name"] else (0.5, 0.75, 0.95))
+            imgui.text_colored(state["name"], *color)
+            hovered = imgui.is_item_hovered()
+            imgui.same_line(position=166)
+            if direct:
+                imgui.push_item_width(130)
+                edited, value = imgui.slider_float("##target", state["target"], state["lower"],
+                                                   state["upper"], format="v=%.2f" if state["velocity_controlled"] else "%.3f")
+                imgui.pop_item_width()
+                if edited:
+                    value = np.clip(value, state["lower"], state["upper"])
+                    self.session.set_joint_target(state["name"], value)
+            else:
+                actual = state["velocity"] if state["velocity_controlled"] else state["position"]
+                fraction = np.clip((actual - state["lower"]) / (state["upper"] - state["lower"]), 0, 1)
+                prefix = "v=" if state["velocity_controlled"] else ""
+                imgui.progress_bar(float(fraction), (130, 16), f"{prefix}{actual:.3f}")
+            if hovered or imgui.is_item_hovered():
+                input_unit = "rad/s" if state["velocity_controlled"] else state["unit"]
+                force_unit = "N" if state["unit"] == "m" else "Nm"
+                imgui.set_tooltip(f"{state['name']}\nPosition: {state['position']:.4f} {state['unit']}\n"
+                                  f"Speed: {state['velocity']:.4f} {state['unit']}/s\n"
+                                  f"Actuator force: {state['force']:.3f} {force_unit}\n"
+                                  f"Target: {state['target']:.4f} {input_unit}")
+            imgui.pop_id()
+        if not count:
+            imgui.text_disabled("No matching joints")
+        imgui.end_child()
         imgui.end()
 
+    def status_panel(self):
         metrics = self.session.metrics()
         height = glfw.get_window_size(self.window)[1]
-        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 205))
-        imgui.set_next_window_size(345, 195)
+        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 285))
+        imgui.set_next_window_size(350, 275)
         imgui.set_next_window_bg_alpha(0.65)
-        imgui.begin("Tracking status", flags=imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
+        imgui.begin("Panel 6 | Simulation status", flags=(imgui.WINDOW_NO_MOVE
+                    | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
+        if metrics["ik_err"] is None:
+            imgui.text("ik_err (R): N/A in joint mode")
+        else:
+            imgui.text(f"ik_err (R): {metrics['ik_err'] * 1000:.2f} mm")
+            imgui.text(f"Right IK rotation: {metrics['right_ik_orientation_error_deg']:.2f} deg")
+        imgui.text(f"sim_time: {metrics['sim_time']:.2f} s")
+        imgui.text(f"wall_time: {metrics['wall_time']:.2f} s")
+        imgui.text(f"loop_freq: {metrics['loop_freq']:.1f} Hz")
+        imgui.text(f"loop_freq (ema): {metrics['loop_freq_ema']:.1f} Hz")
+        imgui.separator()
         state = "Checking arm reach" if metrics["planning"] else metrics["status"]
-        imgui.text(f"{metrics['active_hand'].title()} / {metrics['mode']} / {state}")
-        imgui.text(f"Actual error: {metrics['position_error_m']*1000:.2f} mm / {metrics['orientation_error_deg']:.2f} deg")
-        imgui.text(f"IK error: {metrics['ik_position_error_m']*1000:.2f} mm / {metrics['ik_orientation_error_deg']:.2f} deg")
-        imgui.text(f"Other hand Z error: {metrics['held_height_error_m']*1000:.2f} mm")
+        paused = " | PAUSED" if metrics["paused"] else ""
+        imgui.text(f"{metrics['control_mode']} / {metrics['mode']}{paused}")
+        imgui.text_wrapped(state)
+        if metrics["control_mode"] == "IK":
+            imgui.text(f"Actual {metrics['active_hand']}: {metrics['position_error_m']*1000:.2f} mm / {metrics['orientation_error_deg']:.2f} deg")
+            imgui.text(f"Other hand Z error: {metrics['held_height_error_m']*1000:.2f} mm")
         imgui.text(f"Lift: {metrics['lift_m']:.4f} m | saturated: {metrics['saturated_actuators']}")
-        imgui.text(f"Sim: {metrics['sim_time']:.2f} s | compute: {metrics['compute_ms']:.1f} ms")
+        imgui.text(f"Compute: {metrics['compute_ms']:.1f} ms")
         imgui.end()
+
+    def panels(self):
+        self.hand_panel("right", 1, 0)
+        self.finger_panel("right", 2, 207)
+        self.hand_panel("left", 3, 304)
+        self.finger_panel("left", 4, 511)
+        self.joint_panel(608)
+        self.status_panel()
 
     def run(self, frames=0, screenshot=None):
         previous = time.monotonic()

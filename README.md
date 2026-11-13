@@ -5,7 +5,8 @@ MuJoCo에서 **패널 1(오른손)**과 **패널 3(왼손)**의 각 6개 슬라�
 관절 목표는 힘 제한을 적용한 PD와 중력·코리올리·원심력 보상으로 추종합니다.
 
 **패널 2(오른손)**와 **패널 4(왼손)**에서는 엄지와 나머지 네 손가락을 각각 접고 펼 수 있습니다.
-정육면체·캔·파지 제어·충돌 회피와 조인트 직접 제어 패널은 후속 구현 범위입니다.
+**패널 5**는 전체 조인트 상태와 직접 제어, **패널 6**은 시뮬레이션 시간·IK 오차·루프 주파수를 표시합니다.
+정육면체·캔·파지 제어·충돌 회피는 후속 구현 범위입니다.
 
 ## 실행
 
@@ -45,10 +46,15 @@ VS Code 인터프리터는 `requirements-ffw/bin/python`을 선택합니다.
   반대 손의 X/Y 위치·방향은 낮은 우선순위로 유지하려고 시도하며, 고정 조건은 높이입니다.
 - `ARM`은 리프트 고정, `LIFT`는 양팔·리프트 동시 계산입니다.
   팔 도달성 검사는 백그라운드에서 수행하여 슬라이더 입력을 막지 않습니다.
-- `Pause`/`Resume`으로 물리 진행을 멈추거나 재개하고, `Reset`으로 초기 상태로 돌아갑니다.
+- 패널 5의 `Filter`와 목록 스크롤로 63개 조인트를 확인합니다. 마우스를 올리면 실제 위치·속도·구동기 힘·목표값이 보입니다.
+- `Direct joints`를 켜면 패널 1~4를 멈추고 개별 조인트를 제어합니다. 바퀴 구동은 `v=` 속도(rad/s), 나머지는 위치(rad/m)입니다.
+  끄면 현재 실제 자세에서 IK를 재개하며, 개별 손가락 자세는 다음 프리셋 입력까지 유지합니다.
+- 패널 5의 `Pause`/`Resume`으로 물리 진행을 멈추거나 재개하고, `Reset`으로 초기 상태로 돌아갑니다.
 - 장면에서 왼쪽 드래그는 시점 회전, 오른쪽 드래그는 이동, 마우스 휠은 확대·축소입니다. Esc로 종료합니다.
 
-상태창은 실제 위치·방향 오차, IK 기준 오차, 반대 손 높이 오차, 리프트 위치, 구동기 포화 개수를 보여줍니다.
+패널 6은 오른손 기준 IK 오차, 시뮬레이션/실제 시간, 실제 루프 주파수와 EMA를 표시합니다.
+실제 추종 오차, 반대 손 높이 오차, 리프트 위치, 양팔·리프트 구동기 포화 개수도 보여줍니다.
+직접 제어 중 IK 오차는 `N/A`입니다. [패널 5·6 안내](docs/joint_monitor.md)에 지표와 모드 전환 규칙을 정리했습니다.
 `IK reached / settling`은 계산상 목표에는 도달했지만 물리 추종이 아직 진행 중이라는 뜻입니다.
 `Tracking / limited`에서는 목표를 추종 중이거나 현재 제약 때문에 잔차가 남을 수 있습니다.
 QP가 실패하면 `STOP` 상태에서 마지막 유효 관절 목표를 유지합니다. 새 목표 또는 Reset으로 다시 시도할 수 있습니다.
@@ -70,6 +76,9 @@ python -m ffw_control.app --headless --seconds 4 --side left --offset 0.03 0 0.0
 
 # 양손 손가락: 엄지와 나머지 네 손가락의 접는 정도
 python -m ffw_control.app --headless --seconds 3 --right-fingers 1 1 --left-fingers 0.6 0.8
+
+# 조인트 직접 제어
+ffw-control --headless --seconds 3 --joint head_joint1=0.2 --joint finger_r_joint6=0.6
 
 # 회귀 테스트
 python -m unittest discover -s tests -v
@@ -107,10 +116,12 @@ mujoco_proj/
 │   ├── robots/model.py           # 고정 베이스 모델·손 기준점·Jacobian
 │   ├── control/
 │   │   ├── fingers.py            # 엄지/네 손가락 독립 제어
+│   │   ├── joints.py             # 전체 조인트 조회·직접 제어
 │   │   ├── hierarchy/qp.py       # 제약 QP 및 null space 계층
 │   │   ├── ik/differential.py    # 미분 IK·팔 도달성 검사
 │   │   └── dynamics/servo.py     # 힘 제한 PD 및 bias 보상
 │   ├── simulation/session.py    # 양손 목표·모드·물리 진행
+│   ├── simulation/timing.py     # 실제 루프 주파수·EMA
 │   ├── ui/window.py             # 슬라이더·MuJoCo 렌더링
 │   └── evaluation/              # 향후 평가 확장
 ├── scripts/check_model.py        # 기존 원본 모델 점검

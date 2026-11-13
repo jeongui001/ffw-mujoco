@@ -1,4 +1,4 @@
-"""Run hand pose/finger panels 1-4 or a bounded headless controller session."""
+"""Run panels 1-6 or a bounded headless controller session."""
 
 import argparse
 import json
@@ -25,6 +25,8 @@ def main():
                         help="Right finger targets: 0=open, 1=closed")
     parser.add_argument("--left-fingers", nargs=2, type=float, default=[0, 0], metavar=("THUMB", "FOUR_FINGERS"),
                         help="Left finger targets: 0=open, 1=closed")
+    parser.add_argument("--joint", action="append", default=[], metavar="NAME=VALUE",
+                        help="Direct joint target; repeat for multiple joints (wheel drives use rad/s)")
     parser.add_argument("--frames", type=int, default=0, help="Close GUI after this many frames; 0 keeps it open")
     parser.add_argument("--screenshot", help="Save PNG on the final frame; requires --frames")
     args = parser.parse_args()
@@ -32,6 +34,8 @@ def main():
         parser.error("--seconds must be positive and --frames must be nonnegative")
     if args.screenshot and not args.frames:
         parser.error("--screenshot requires --frames")
+    if args.joint and (args.offset is not None or any(args.rpy) or any(args.right_fingers) or any(args.left_fingers)):
+        parser.error("--joint cannot be combined with hand pose or finger preset inputs")
     session = ControlSession()
     try:
         session.set_finger_targets("right", *args.right_fingers)
@@ -41,10 +45,23 @@ def main():
     if args.offset is not None or any(args.rpy):
         target = session.targets[args.side].position + (args.offset or [0, 0, 0])
         session.set_target(args.side, target, args.rpy)
+    requested_joints = set()
+    if args.joint:
+        session.set_control_mode("JOINT")
+        for assignment in args.joint:
+            try:
+                name, value = assignment.split("=", 1)
+                session.set_joint_target(name, float(value))
+                requested_joints.add(name)
+            except ValueError as error:
+                parser.error(f"Invalid --joint {assignment}: {error}")
     if args.headless:
         for _ in range(round(args.seconds / session.robot.config["control_dt"])):
             session.tick()
-        print(json.dumps(session.metrics(), indent=2))
+        result = session.metrics()
+        if requested_joints:
+            result["joints"] = [row for row in session.joint_states() if row["name"] in requested_joints]
+        print(json.dumps(result, indent=2))
         if session.mode == "STOP":
             raise SystemExit(1)
     else:
