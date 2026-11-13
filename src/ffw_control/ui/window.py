@@ -61,6 +61,7 @@ class ControlWindow:
         self.cursor = glfw.get_cursor_pos(self.window)
         self.paused = False
         self.joint_filter = ""
+        self.pickup_error = ""
         glfw.set_scroll_callback(self.window, self.scroll)
         style = imgui.get_style()
         style.window_rounding = 5
@@ -168,6 +169,7 @@ class ControlWindow:
             self.session.close()
             self.session = ControlSession()
             self.paused = False
+            self.pickup_error = ""
         imgui.same_line()
         changed, direct = imgui.checkbox("Direct joints", self.session.control_mode == "JOINT")
         if changed:
@@ -246,21 +248,21 @@ class ControlWindow:
         imgui.separator()
         for side, can in metrics["objects"].items():
             imgui.text(f"{side.title()} can: {can['state']} | {can['clearance_m'] * 1000:.0f} mm")
-        if imgui.button("Pick right can"):
-            try:
-                self.session.start_grasp_demo("right")
-            except ValueError as error:
-                self.session.status = str(error)
-        imgui.same_line()
-        if imgui.button("Pick left can"):
-            try:
-                self.session.start_grasp_demo("left")
-            except ValueError as error:
-                self.session.status = str(error)
+        for side in ("right", "left"):
+            if side == "left":
+                imgui.same_line()
+            if imgui.button(f"Pick {side} can"):
+                try:
+                    self.session.start_grasp_demo(side)
+                    self.pickup_error = ""
+                except ValueError as error:
+                    self.pickup_error = str(error)
         if metrics["grasp_demo"] is not None:
             imgui.text_wrapped(f"Pickup {metrics['grasp_demo']['side']}: {metrics['grasp_demo']['message']}")
             if self.session.grasp_demo.active and imgui.button("Cancel sequence"):
                 self.session.cancel_grasp_demo()
+        if self.pickup_error:
+            imgui.text_wrapped(self.pickup_error)
         imgui.end()
 
     def panels(self):
