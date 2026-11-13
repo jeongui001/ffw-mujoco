@@ -299,7 +299,7 @@ class RobotControlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             session.set_target("right", [np.nan, 0, 0], [0, 0, 0])
 
-    def test_joint_monitor_covers_every_joint_and_uses_measured_state(self):
+    def test_joint_monitor_covers_robot_joints_and_uses_measured_state(self):
         session = ControlSession(self.robot)
         rows = session.joint_states()
         self.assertEqual(len(rows), self.robot.model.nu)

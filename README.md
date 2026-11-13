@@ -6,7 +6,8 @@ MuJoCo에서 **패널 1(오른손)**과 **패널 3(왼손)**의 각 6개 슬라�
 
 **패널 2(오른손)**와 **패널 4(왼손)**에서는 엄지와 나머지 네 손가락을 각각 접고 펼 수 있습니다.
 **패널 5**는 전체 조인트 상태와 직접 제어, **패널 6**은 시뮬레이션 시간·IK 오차·루프 주파수를 표시합니다.
-정육면체·캔·파지 제어·충돌 회피는 후속 구현 범위입니다.
+0.8m 정육면체와 자유 캔 두 개를 배치했으며 손가락의 물리 접촉으로 잡고 들어 올릴 수 있습니다.
+패널 6의 픽업 버튼으로 양손의 접근·파지·들기를 바로 확인할 수 있습니다. 자동 충돌 회피는 후속 범위입니다.
 
 ## 실행
 
@@ -50,10 +51,14 @@ VS Code 인터프리터는 `requirements-ffw/bin/python`을 선택합니다.
 - `Direct joints`를 켜면 패널 1~4를 멈추고 개별 조인트를 제어합니다. 바퀴 구동은 `v=` 속도(rad/s), 나머지는 위치(rad/m)입니다.
   끄면 현재 실제 자세에서 IK를 재개하며, 개별 손가락 자세는 다음 프리셋 입력까지 유지합니다.
 - 패널 5의 `Pause`/`Resume`으로 물리 진행을 멈추거나 재개하고, `Reset`으로 초기 상태로 돌아갑니다.
+- 패널 6의 `Pick right can` / `Pick left can`은 초기 배치에서 접근·파지·들기·3초 유지를 진행합니다.
+  완료 후 패널 2·4의 두 슬라이더를 0으로 되돌리면 캔을 놓습니다. 재실행은 `Reset` 후 진행합니다.
+  수동 입력은 시퀀스를 취소하고 우선 적용됩니다. `Cancel sequence`는 마지막 제어 목표를 유지합니다.
 - 장면에서 왼쪽 드래그는 시점 회전, 오른쪽 드래그는 이동, 마우스 휠은 확대·축소입니다. Esc로 종료합니다.
 
 패널 6은 오른손 기준 IK 오차, 시뮬레이션/실제 시간, 실제 루프 주파수와 EMA를 표시합니다.
 실제 추종 오차, 반대 손 높이 오차, 리프트 위치, 양팔·리프트 구동기 포화 개수도 보여줍니다.
+각 캔의 접촉·들림 상태와 작업대 기준 이격도 표시합니다. 물성과 판정 기준은 [파지 안내](docs/grasping.md)에 정리했습니다.
 직접 제어 중 IK 오차는 `N/A`입니다. [패널 5·6 안내](docs/joint_monitor.md)에 지표와 모드 전환 규칙을 정리했습니다.
 `IK reached / settling`은 계산상 목표에는 도달했지만 물리 추종이 아직 진행 중이라는 뜻입니다.
 `Tracking / limited`에서는 목표를 추종 중이거나 현재 제약 때문에 잔차가 남을 수 있습니다.
@@ -79,6 +84,10 @@ python -m ffw_control.app --headless --seconds 3 --right-fingers 1 1 --left-fing
 
 # 조인트 직접 제어
 ffw-control --headless --seconds 3 --joint head_joint1=0.2 --joint finger_r_joint6=0.6
+
+# 물리 접촉으로 캔 파지·들기·유지 (기본 25초)
+ffw-control --headless --grasp-demo right
+ffw-control --headless --grasp-demo left
 
 # 회귀 테스트
 python -m unittest discover -s tests -v
@@ -122,11 +131,13 @@ mujoco_proj/
 │   │   └── dynamics/servo.py     # 힘 제한 PD 및 bias 보상
 │   ├── simulation/session.py    # 양손 목표·모드·물리 진행
 │   ├── simulation/timing.py     # 실제 루프 주파수·EMA
+│   ├── simulation/grasp.py      # 기존 제어 경로를 사용하는 픽업 시퀀스
+│   ├── simulation/objects.py    # 캔 접촉·들림 관측
 │   ├── ui/window.py             # 슬라이더·MuJoCo 렌더링
 │   └── evaluation/              # 향후 평가 확장
 ├── scripts/check_model.py        # 기존 원본 모델 점검
 ├── tests/test_control.py         # 지속적인 회귀 검증
-├── scenes/                      # 향후 작업 장면
+├── scenes/grasp.xml              # 정육면체·자유 캔 두 개·접촉 설정
 ├── experiments/                 # 향후 실험 설정
 ├── outputs/                     # 생성 로그·영상·캡처 (Git 제외)
 └── docs/                        # 프로젝트 Markdown 문서
