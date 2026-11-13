@@ -55,10 +55,13 @@ mujoco_proj/
 ├── experiments/              # 재현 가능한 실험 설정 및 실행 조건
 ├── outputs/                  # 생성 로그, 그래프, 영상 (Git 제외)
 └── docs/
+    ├── functional_spec.md    # 사용자 기능, 패널 구성, 장면 요구사항
     └── architecture.md       # 모듈 책임, 데이터 흐름, 후속 설계 항목
 ```
 
 각 코드 폴더는 현재 패키지 골격만 갖고 있습니다. 기존 `robotis_ffw/README.md`는 이전 예제의 안내이며,
 현재 저장소의 환경 및 실행 안내는 이 문서를 기준으로 합니다.
 
+프로젝트 Markdown 문서는 `docs/`에 모읍니다.
+예정된 기능은 [사용자 기능 명세](docs/functional_spec.md),
 설계 의도와 다음 단계는 [구조 설계 문서](docs/architecture.md)를 참고하세요.
