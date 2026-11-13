@@ -14,6 +14,8 @@ from ffw_control.control.hierarchy.qp import QPFailure
 from ffw_control.control.ik.differential import DifferentialIK
 from ffw_control.robots.model import Pose, Robot
 from ffw_control.simulation.timing import LoopTiming
+from ffw_control.simulation.objects import ObjectMonitor
+from ffw_control.simulation.grasp import GraspSequence
 
 
 class ControlSession:
@@ -24,6 +26,8 @@ class ControlSession:
         self.servo = JointServo(self.robot, self.data)
         self.fingers = FingerController(self.robot, self.data)
         self.joints = JointController(self.robot, self.data, self.fingers.velocity_limit)
+        self.objects = ObjectMonitor(self.robot.model)
+        self.grasp_demo = None
         self.ik = DifferentialIK(self.robot)
         self.initial_poses = {s: self.robot.pose(self.data, s) for s in ("right", "left")}
         self.targets = {s: p.copy() for s, p in self.initial_poses.items()}
@@ -52,6 +56,16 @@ class ControlSession:
             raise ValueError("Return to IK mode before using finger presets")
         # Finger input does not change the active hand or replan its pose.
         self.fingers.set_targets(side, thumb, four_fingers)
+
+    def start_grasp_demo(self, side):
+        sequence = GraspSequence(self, side)
+        self.cancel_grasp_demo()
+        self.grasp_demo = sequence
+        sequence.start()
+
+    def cancel_grasp_demo(self):
+        if self.grasp_demo is not None:
+            self.grasp_demo.cancel()
 
     def set_target(self, side, position, rpy_degrees, asynchronous=False):
         if self.control_mode != "IK":
@@ -90,6 +104,7 @@ class ControlSession:
             raise ValueError(f"Unknown control mode: {mode}")
         if mode == self.control_mode:
             return
+        self.cancel_grasp_demo()
         self._plan_revision += 1
         self._pending_plan = None
         self.joints.capture(self.data)
@@ -129,7 +144,7 @@ class ControlSession:
             targets = self.joints.targets.copy()
         else:
             targets = self.data.ctrl[self.joints.actuator_ids].copy()
-            targets[self.robot.joint_ids] = self.position_target
+            targets[self.joints.arm_rows] = self.position_target
         return self.joints.states(self.data, targets)
 
     def _passive_can_stop(self):
@@ -183,11 +198,13 @@ class ControlSession:
         started = time.monotonic()
         self.timing.record(started)
         self._poll_plan()
+        if self.grasp_demo is not None:
+            self.grasp_demo.advance()
         dt = self.robot.config["control_dt"]
         self.joints.advance(dt)
         if self.control_mode == "JOINT":
-            self.position_target = self.joints.commands[self.robot.joint_ids].copy()
-            self.previous_velocity = self.joints.command_velocities[self.robot.joint_ids].copy()
+            self.position_target = self.joints.commands[self.joints.arm_rows].copy()
+            self.previous_velocity = self.joints.command_velocities[self.joints.arm_rows].copy()
         elif self.mode != "STOP":
             try:
                 velocity = self.ik.velocity(
@@ -248,6 +265,11 @@ class ControlSession:
             "sim_time": float(self.data.time), "wall_time": time.monotonic() - self.started_at,
             "compute_ms": self.last_loop_seconds * 1000, "saturated_actuators": self.servo.saturated,
             "planning": self._future is not None and self._future_revision == self._plan_revision,
+            "objects": self.objects.states(self.data),
+            "grasp_demo": None if self.grasp_demo is None else {
+                "side": self.grasp_demo.side, "phase": self.grasp_demo.phase,
+                "message": self.grasp_demo.message,
+            },
             "finger_targets": {
                 side: {"thumb": float(values[0]), "four_fingers": float(values[1])}
                 for side, values in self.fingers.targets.items()

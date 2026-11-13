@@ -17,7 +17,8 @@ from ffw_control.simulation.session import ControlSession
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--headless", action="store_true")
-    parser.add_argument("--seconds", type=float, default=5.0, help="Headless simulation duration")
+    parser.add_argument("--seconds", type=float, help="Headless duration (default: 5s; pickup: 25s)")
+    parser.add_argument("--grasp-demo", choices=("right", "left"), help="Approach, close, lift and hold a can")
     parser.add_argument("--side", choices=("right", "left"), default="right")
     parser.add_argument("--offset", nargs=3, type=float, metavar=("X", "Y", "Z"))
     parser.add_argument("--rpy", nargs=3, type=float, default=[0, 0, 0], metavar=("ROLL", "PITCH", "YAW"))
@@ -30,12 +31,17 @@ def main():
     parser.add_argument("--frames", type=int, default=0, help="Close GUI after this many frames; 0 keeps it open")
     parser.add_argument("--screenshot", help="Save PNG on the final frame; requires --frames")
     args = parser.parse_args()
+    if args.seconds is None:
+        args.seconds = 25.0 if args.grasp_demo else 5.0
     if args.seconds <= 0 or args.frames < 0:
         parser.error("--seconds must be positive and --frames must be nonnegative")
     if args.screenshot and not args.frames:
         parser.error("--screenshot requires --frames")
     if args.joint and (args.offset is not None or any(args.rpy) or any(args.right_fingers) or any(args.left_fingers)):
         parser.error("--joint cannot be combined with hand pose or finger preset inputs")
+    if args.grasp_demo and (args.joint or args.offset is not None or any(args.rpy)
+                           or any(args.right_fingers) or any(args.left_fingers)):
+        parser.error("--grasp-demo cannot be combined with manual control inputs")
     session = ControlSession()
     try:
         session.set_finger_targets("right", *args.right_fingers)
@@ -56,15 +62,20 @@ def main():
             except ValueError as error:
                 parser.error(f"Invalid --joint {assignment}: {error}")
     if args.headless:
+        if args.grasp_demo:
+            session.start_grasp_demo(args.grasp_demo)
         for _ in range(round(args.seconds / session.robot.config["control_dt"])):
             session.tick()
         result = session.metrics()
         if requested_joints:
             result["joints"] = [row for row in session.joint_states() if row["name"] in requested_joints]
         print(json.dumps(result, indent=2))
-        if session.mode == "STOP":
+        session.close()
+        if session.mode == "STOP" or (session.grasp_demo is not None and session.grasp_demo.phase == "FAILED"):
             raise SystemExit(1)
     else:
+        if args.grasp_demo:
+            session.start_grasp_demo(args.grasp_demo)
         from ffw_control.ui.window import ControlWindow
         ControlWindow(session).run(args.frames, args.screenshot)
 

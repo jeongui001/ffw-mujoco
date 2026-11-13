@@ -54,8 +54,8 @@ class ControlWindow:
         self.option = mujoco.MjvOption()
         self.option.geomgroup[3] = 0
         self.camera = mujoco.MjvCamera()
-        self.camera.lookat[:] = [0.1, 0, 0.85]
-        self.camera.distance = 2.6
+        self.camera.lookat[:] = [0.4, 0, 0.85]
+        self.camera.distance = 3.0
         self.camera.azimuth = 135
         self.camera.elevation = -20
         self.cursor = glfw.get_cursor_pos(self.window)
@@ -174,7 +174,7 @@ class ControlWindow:
             self.session.set_control_mode("JOINT" if direct else "IK")
         direct = self.session.control_mode == "JOINT"
         imgui.text("JOINT: Cartesian holds off" if direct else
-                   f"{self.session.robot.model.njnt} joints | hover: position / speed / force")
+                   f"{len(self.session.joints.names)} joints | hover: position / speed / force")
         imgui.push_item_width(245)
         _, self.joint_filter = imgui.input_text("Filter", self.joint_filter, 128)
         imgui.pop_item_width()
@@ -219,8 +219,8 @@ class ControlWindow:
     def status_panel(self):
         metrics = self.session.metrics()
         height = glfw.get_window_size(self.window)[1]
-        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 285))
-        imgui.set_next_window_size(350, 275)
+        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 395))
+        imgui.set_next_window_size(350, 385)
         imgui.set_next_window_bg_alpha(0.65)
         imgui.begin("Panel 6 | Simulation status", flags=(imgui.WINDOW_NO_MOVE
                     | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
@@ -243,6 +243,24 @@ class ControlWindow:
             imgui.text(f"Other hand Z error: {metrics['held_height_error_m']*1000:.2f} mm")
         imgui.text(f"Lift: {metrics['lift_m']:.4f} m | saturated: {metrics['saturated_actuators']}")
         imgui.text(f"Compute: {metrics['compute_ms']:.1f} ms")
+        imgui.separator()
+        for side, can in metrics["objects"].items():
+            imgui.text(f"{side.title()} can: {can['state']} | {can['clearance_m'] * 1000:.0f} mm")
+        if imgui.button("Pick right can"):
+            try:
+                self.session.start_grasp_demo("right")
+            except ValueError as error:
+                self.session.status = str(error)
+        imgui.same_line()
+        if imgui.button("Pick left can"):
+            try:
+                self.session.start_grasp_demo("left")
+            except ValueError as error:
+                self.session.status = str(error)
+        if metrics["grasp_demo"] is not None:
+            imgui.text_wrapped(f"Pickup {metrics['grasp_demo']['side']}: {metrics['grasp_demo']['message']}")
+            if self.session.grasp_demo.active and imgui.button("Cancel sequence"):
+                self.session.cancel_grasp_demo()
         imgui.end()
 
     def panels(self):

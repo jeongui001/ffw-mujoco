@@ -1,6 +1,6 @@
 {
   "model_name": "ffw_sh5",
-  "scene_path": "robotis_ffw/scene_ffw_sh5.xml",
+  "scene_path": "scenes/grasp.xml",
   "base_body": "base_link",
   "shared_lift_joint": "lift_joint",
   "hands": {

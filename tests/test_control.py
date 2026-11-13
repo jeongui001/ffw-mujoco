@@ -87,7 +87,10 @@ class RobotControlTests(unittest.TestCase):
         self.assertLess(abs(metrics["held_height_error_m"]), 0.002, metrics)
 
     def test_fixed_base_and_shared_lift_jacobian(self):
-        self.assertNotIn(mujoco.mjtJoint.mjJNT_FREE, self.robot.model.jnt_type)
+        self.assertEqual(self.robot.model.body("base_link").jntnum[0], 0)
+        free = np.flatnonzero(self.robot.model.jnt_type == mujoco.mjtJoint.mjJNT_FREE)
+        self.assertEqual({self.robot.model.joint(j).name for j in free},
+                         {"can_right_free", "can_left_free"})
         data = self.robot.new_data()
         for side in ("right", "left"):
             jacobian = self.robot.jacobian(data, side)
@@ -96,6 +99,73 @@ class RobotControlTests(unittest.TestCase):
             self.robot.update_kinematics(data)
             derivative = (self.robot.pose(data, side).position - before) / 1e-5
             np.testing.assert_allclose(derivative, jacobian[:3, -1], atol=1e-7)
+
+    def test_free_cans_settle_on_table_without_external_forces(self):
+        session = ControlSession(self.robot)
+        for _ in range(150):
+            session.tick()
+        before = session.data.qpos.copy()
+        states = session.objects.states(session.data)
+        np.testing.assert_array_equal(session.data.qpos, before)
+        np.testing.assert_array_equal(session.data.qfrc_applied, 0)
+        np.testing.assert_array_equal(session.data.xfrc_applied, 0)
+        self.assertEqual(self.robot.model.neq, 0)
+        for side, state in states.items():
+            self.assertTrue(state["on_table"], state)
+            self.assertFalse(state["lifted"], state)
+            self.assertEqual(state["grasped_by"], [])
+            self.assertLess(abs(state["clearance_m"]), 0.002)
+            expected_y = -0.22 if side == "right" else 0.22
+            np.testing.assert_allclose(state["position_m"], [0.56, expected_y, 0.86], atol=0.002)
+
+    def test_both_hands_pick_up_hold_and_release_physical_cans(self):
+        for side in ("right", "left"):
+            with self.subTest(side=side):
+                session = ControlSession(self.robot)
+                before = session.data.qpos.copy()
+                session.start_grasp_demo(side)
+                np.testing.assert_array_equal(session.data.qpos, before)
+                for _ in range(1200):
+                    session.tick()
+                    self.assertNotEqual(session.mode, "STOP", session.status)
+                    if not session.grasp_demo.active:
+                        break
+                self.assertEqual(session.grasp_demo.phase, "DONE", session.metrics())
+                state = session.objects.states(session.data)[side]
+                self.assertEqual(state["state"], "held", state)
+                self.assertGreater(state["clearance_m"], 0.10)
+                self.assertIn(side, state["grasped_by"])
+                self.assertFalse(state["on_table"])
+                np.testing.assert_array_equal(session.data.qfrc_applied, 0)
+                np.testing.assert_array_equal(session.data.xfrc_applied, 0)
+                held_height = state["position_m"][2]
+                session.set_finger_targets(side, 0, 0)
+                for _ in range(200):
+                    session.tick()
+                released = session.objects.states(session.data)[side]
+                self.assertEqual(released["grasped_by"], [], released)
+                self.assertLess(released["position_m"][2], held_height - 0.08)
+
+    def test_pickup_pause_manual_takeover_and_mode_switch(self):
+        session = ControlSession(self.robot)
+        session.start_grasp_demo("right")
+        session.set_paused(True)
+        before = session.data.qpos.copy()
+        for _ in range(20):
+            session.tick()
+        self.assertEqual(session.grasp_demo.phase, "APPROACH")
+        self.assertEqual(session.data.time, 0)
+        np.testing.assert_array_equal(session.data.qpos, before)
+        session.set_paused(False)
+        session.set_finger_targets("right", 0.3, 0.4)
+        session.tick()
+        self.assertEqual(session.grasp_demo.phase, "CANCELLED")
+        np.testing.assert_array_equal(session.fingers.targets["right"], [0.3, 0.4])
+        session.start_grasp_demo("right")
+        session.set_control_mode("JOINT")
+        self.assertEqual(session.grasp_demo.phase, "CANCELLED")
+        with self.assertRaises(ValueError):
+            session.start_grasp_demo("left")
 
     def test_each_panel_tracks_translation_and_rotation_without_lift(self):
         for side in ("right", "left"):
@@ -232,8 +302,11 @@ class RobotControlTests(unittest.TestCase):
     def test_joint_monitor_covers_every_joint_and_uses_measured_state(self):
         session = ControlSession(self.robot)
         rows = session.joint_states()
-        self.assertEqual(len(rows), self.robot.model.njnt)
-        self.assertEqual(len({row["name"] for row in rows}), self.robot.model.njnt)
+        self.assertEqual(len(rows), self.robot.model.nu)
+        self.assertEqual(len({row["name"] for row in rows}), self.robot.model.nu)
+        self.assertFalse(any(row["name"].startswith("can_") for row in rows))
+        with self.assertRaises(ValueError):
+            session.joints.set_target("can_right_free", 0)
         for row in rows:
             joint = self.robot.model.joint(row["name"])
             self.assertEqual(row["position"], session.data.qpos[joint.qposadr[0]])
