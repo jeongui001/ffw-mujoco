@@ -14,4 +14,4 @@ dynamic = ["dependencies"]
 where = ["src"]
 
 [tool.setuptools.dynamic]
-dependencies = {file = ["requirements-ffw.txt"]}
+dependencies = {file = ["requirements-ffw.txt", "requirements-control.txt"]}

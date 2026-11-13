@@ -1,0 +1,20 @@
+{
+  "control_dt": 0.02,
+  "physics_dt": 0.002,
+  "position_tolerance": 0.002,
+  "orientation_tolerance_degrees": 1.0,
+  "held_height_tolerance": 0.001,
+  "arm_velocity_limit": 0.7,
+  "lift_velocity_limit": 0.035,
+  "arm_acceleration_limit": 2.0,
+  "lift_acceleration_limit": 0.12,
+  "hand_linear_velocity_limit": 0.10,
+  "hand_angular_velocity_limit": 0.5,
+  "task_gain": 4.0,
+  "lift_position_gain": 100000.0,
+  "lift_velocity_gain": 600.0,
+  "feasibility_iterations": 100,
+  "initial_lift": -0.20,
+  "initial_left_arm": [0.0, 0.30, 0.0, -0.85, 0.0, 0.40, 0.0],
+  "initial_right_arm": [0.0, -0.30, 0.0, -0.85, 0.0, 0.40, 0.0]
+}
