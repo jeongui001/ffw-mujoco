@@ -9,6 +9,8 @@ MuJoCo에서 **패널 1(오른손)**과 **패널 3(왼손)**의 각 6개 슬라�
 0.8m 정육면체와 자유 캔 두 개를 배치했으며 손가락의 물리 접촉으로 잡고 들어 올릴 수 있습니다.
 패널 6의 픽업 버튼으로 양손의 접근·파지·들기를 바로 확인할 수 있습니다. 자동 충돌 회피는 후속 범위입니다.
 
+공부는 [코드 구조와 공부 순서](docs/architecture.md)부터 시작하세요.
+
 ## 실행
 
 프로젝트 루트에서 기존 가상환경을 활성화합니다.
@@ -31,7 +33,7 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-기본 패키지는 기존 `requirements-ffw.txt`, 추가 솔버 패키지는 `requirements-control.txt`에서 읽습니다.
+전체 의존성과 버전은 `requirements.txt`에서 관리하며 `pip install -e .`이 이를 읽습니다.
 가상환경 폴더 이름은 `.venv`이며 종료는 `deactivate`입니다.
 VS Code 인터프리터는 `.venv/bin/python`을 선택합니다.
 
@@ -119,10 +121,9 @@ env -u PYTHONPATH .venv/bin/python -m pip check
 ```text
 mujoco_proj/
 ├── .venv/                       # 로컬 가상환경 (Git 제외)
-├── requirements-ffw.txt          # 기존 MuJoCo/UI 패키지
-├── requirements-control.txt      # OSQP/SciPy 버전
+├── requirements.txt              # 전체 의존성 및 버전
 ├── pyproject.toml                # 패키지 및 실행 명령
-├── robotis_ffw/                  # 기존 XML·메쉬 (원본 유지)
+├── robotis_ffw/                  # SH5 원본 XML·필수 메시·LICENSE
 ├── configs/
 │   ├── robot.json                # 로봇 이름·경로 매핑
 │   ├── control.json              # 초기 자세, 제한, 오차, 제어 게인
@@ -140,18 +141,18 @@ mujoco_proj/
 │   ├── simulation/timing.py     # 실제 루프 주파수·EMA
 │   ├── simulation/grasp.py      # 기존 제어 경로를 사용하는 픽업 시퀀스
 │   ├── simulation/objects.py    # 캔 접촉·들림 관측
-│   ├── ui/window.py             # 슬라이더·MuJoCo 렌더링
-│   └── evaluation/              # 향후 평가 확장
+│   └── ui/window.py             # 슬라이더·MuJoCo 렌더링
 ├── scripts/check_model.py        # 기존 원본 모델 점검
 ├── tests/test_control.py         # 지속적인 회귀 검증
 ├── scenes/grasp.xml              # 정육면체·자유 캔 두 개·접촉 설정
-├── experiments/                 # 향후 실험 설정
-├── outputs/                     # 생성 로그·영상·캡처 (Git 제외)
 └── docs/                        # 프로젝트 Markdown 문서
 ```
 
-예정된 전체 기능은 [사용자 기능 명세](docs/functional_spec.md),
-모듈의 역할은 [구조 설계](docs/architecture.md),
+캡처를 저장하면 `outputs/`가 자동으로 생성됩니다. 생성 결과는 Git에서 제외합니다.
+가상환경과 로컬 설치에 필요한 `*.egg-info`는 학습 대상 코드가 아닙니다.
+로봇 모델의 라이선스는 [robotis_ffw/LICENSE](robotis_ffw/LICENSE)에 보관합니다.
+
+전체 기능 요구사항은 [사용자 기능 명세](docs/functional_spec.md),
+모듈의 역할과 읽는 순서는 [코드 구조와 공부 순서](docs/architecture.md),
 현재 제어 방식과 제한은 [패널 1·3 제어 문서](docs/panel1_control_design.md)를 참고하세요.
 손가락의 조작과 설정은 [패널 2·4 제어 문서](docs/finger_control.md)에 정리했습니다.
-기존 `robotis_ffw/README.md`는 이전 예제 안내이므로 현재 실행 방법은 이 문서를 기준으로 합니다.

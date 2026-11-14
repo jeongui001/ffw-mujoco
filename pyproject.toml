@@ -17,4 +17,4 @@ ffw-control = "ffw_control.app:main"
 where = ["src"]
 
 [tool.setuptools.dynamic]
-dependencies = {file = ["requirements-ffw.txt", "requirements-control.txt"]}
+dependencies = {file = ["requirements.txt"]}
