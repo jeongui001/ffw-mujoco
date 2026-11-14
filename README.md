@@ -37,6 +37,8 @@ VS Code 인터프리터는 `.venv/bin/python`을 선택합니다.
 
 ## 조작
 
+- 시작과 `Reset`에서는 양팔의 팔꿈치를 90° 굽힙니다. 손바닥은 서로 마주보고,
+  네 손가락은 로봇 앞쪽을 향하며 손목은 꺾이지 않은 자세입니다.
 - 왼쪽 위 패널 1은 오른손, 패널 3은 왼손입니다. 각각 X/Y/Z와 Roll/Pitch/Yaw를 조절합니다.
 - 각 손의 실제 제어 기준점에 좌표축을 표시합니다. `R`은 패널 1, `L`은 패널 3이며,
   X=빨강, Y=초록, Z=파랑입니다. 길이 15cm의 축은 손의 실제 위치·방향을 따라 움직입니다.
@@ -78,8 +80,8 @@ python -m ffw_control.app --headless --seconds 3
 # 오른손: 초기 위치에서 X +4cm, Z +3cm, Roll +5도
 python -m ffw_control.app --headless --seconds 4 --offset 0.04 0 0.03 --rpy 5 0 0
 
-# 리프트가 필요한 목표: 오른손 Z -10cm
-python -m ffw_control.app --headless --seconds 6 --offset 0 0 -0.10
+# 리프트가 필요한 목표: 오른손 X +20cm
+python -m ffw_control.app --headless --seconds 8 --offset 0.20 0 0
 
 # 왼손 조작
 python -m ffw_control.app --headless --seconds 4 --side left --offset 0.03 0 0.03

@@ -139,6 +139,25 @@ class RobotControlTests(unittest.TestCase):
             expected_y = -0.22 if side == "right" else 0.22
             np.testing.assert_allclose(state["position_m"], [0.56, expected_y, 0.86], atol=0.002)
 
+    def test_initial_pose_has_right_angle_elbows_and_inward_palms(self):
+        session = ControlSession(self.robot)
+        for side, prefix, inward in (("right", "r", 1), ("left", "l", -1)):
+            upper_arm = session.data.body(f"arm_{prefix}_link3").xmat.reshape(3, 3)
+            forearm = session.data.body(f"arm_{prefix}_link5").xmat.reshape(3, 3)
+            self.assertAlmostEqual(np.dot(upper_arm[:, 2], forearm[:, 2]), 0, places=7)
+            palm = self.robot.pose(session.data, side)
+            np.testing.assert_allclose(palm.rotation[:, 0], [0, inward, 0], atol=1e-7)
+            np.testing.assert_allclose(palm.rotation[:, 2], [1, 0, 0], atol=1e-7)
+            np.testing.assert_array_equal(session.targets[side].position, palm.position)
+            np.testing.assert_array_equal(session.rpy[side], 0)
+            self.assert_thumb_points_outward(session, side)
+        self.run_ticks(session, 150)
+        self.assert_reached(session)
+        for side in ("right", "left"):
+            error = pose_error(self.robot.pose(session.data, side), session.initial_poses[side])
+            self.assertLess(np.linalg.norm(error[:3]), 0.002)
+            self.assertLess(np.linalg.norm(error[3:]), np.deg2rad(1))
+
     def test_both_hands_pick_up_hold_and_release_physical_cans(self):
         for side in ("right", "left"):
             with self.subTest(side=side):
@@ -294,9 +313,10 @@ class RobotControlTests(unittest.TestCase):
             with self.subTest(side=side):
                 session = ControlSession(self.robot)
                 start = session.position_target.copy()
-                session.set_target(side, session.targets[side].position + [0, 0, -0.10], [0, 0, 0])
+                # Reach forward beyond the arm-only range while staying above the table.
+                session.set_target(side, session.targets[side].position + [0.20, 0, 0], [0, 0, 0])
                 self.assertEqual(session.mode, "LIFT")
-                worst_height_error = self.run_ticks(session, 300, check_rates=True)
+                worst_height_error = self.run_ticks(session, 400, check_rates=True)
                 self.assert_reached(session)
                 self.assertLess(worst_height_error, 0.003)
                 self.assertLess(session.position_target[-1], start[-1] - 0.01)
@@ -306,8 +326,9 @@ class RobotControlTests(unittest.TestCase):
 
     def test_switching_panels_preserves_the_new_passive_height(self):
         session = ControlSession(self.robot)
-        session.set_target("right", session.targets["right"].position + [0, 0, -0.10], [0, 0, 0])
-        self.run_ticks(session, 250)
+        session.set_target("right", session.targets["right"].position + [0.20, 0, 0], [0, 0, 0])
+        self.assertEqual(session.mode, "LIFT")
+        self.run_ticks(session, 400)
         right_height = self.robot.pose(session.data, "right").position[2]
         left_target = self.robot.pose(session.data, "left").position + [0.02, 0, 0.02]
         session.set_target("left", left_target, [0, 0, 0])
@@ -358,7 +379,8 @@ class RobotControlTests(unittest.TestCase):
         before = session.data.qpos.copy()
         session.set_control_mode("JOINT")
         np.testing.assert_array_equal(session.data.qpos, before)
-        targets = {"head_joint1": 0.2, "arm_r_joint4": -0.7,
+        # Bend upward from the initial right angle to stay above the workbench.
+        targets = {"head_joint1": 0.2, "arm_r_joint4": -1.9,
                    "finger_r_joint6": 0.8, "left_wheel_drive_joint": 1.5}
         for name, value in targets.items():
             session.set_joint_target(name, value)
@@ -375,7 +397,7 @@ class RobotControlTests(unittest.TestCase):
                 old_commands = session.joints.commands.copy()
         rows = {row["name"]: row for row in session.joint_states()}
         self.assertGreater(rows["head_joint1"]["position"], 0.15)
-        self.assertGreater(rows["arm_r_joint4"]["position"], -0.75)
+        self.assertAlmostEqual(rows["arm_r_joint4"]["position"], -1.9, delta=0.05)
         self.assertGreater(rows["finger_r_joint6"]["position"], 0.6)
         self.assertGreater(rows["left_wheel_drive_joint"]["velocity"], 0.05)
         self.assertIsNone(session.metrics()["ik_err"])

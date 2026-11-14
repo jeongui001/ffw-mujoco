@@ -20,6 +20,6 @@
   "lift_velocity_gain": 600.0,
   "feasibility_iterations": 100,
   "initial_lift": -0.20,
-  "initial_left_arm": [0.0, 0.30, 0.0, -0.85, 0.0, 0.40, 0.0],
-  "initial_right_arm": [0.0, -0.30, 0.0, -0.85, 0.0, 0.40, 0.0]
+  "initial_left_arm": [0.0, 0.42, 0.0, -1.5707963267948966, 0.42, 0.0, 0.0],
+  "initial_right_arm": [0.0, -0.42, 0.0, -1.5707963267948966, -0.42, 0.0, 0.0]
 }
