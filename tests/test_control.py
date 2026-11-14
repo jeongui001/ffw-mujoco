@@ -189,12 +189,16 @@ class RobotControlTests(unittest.TestCase):
             with self.subTest(side=side):
                 session = ControlSession(self.robot)
                 if side == "left":
-                    palm_normal = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 0]
                     # The left thumb's distal link extends along its local -Y.
                     thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    palm_side = -session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 1]
-                    np.testing.assert_allclose(thumb_direction, palm_side, atol=1e-8)
-                    self.assertAlmostEqual(np.dot(thumb_direction, palm_normal), 0, places=8)
+                    palm_forward = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 2]
+                    proximal = -session.data.body("finger_l_link2").xmat.reshape(3, 3)[:, 1]
+                    middle = -session.data.body("finger_l_link3").xmat.reshape(3, 3)[:, 1]
+                    self.assertAlmostEqual(np.dot(proximal, middle), 0, places=8)
+                    np.testing.assert_allclose(thumb_direction, palm_forward, atol=1e-8)
+                    tip = (session.data.body("finger_l_link4").xpos
+                           + 0.0355 * thumb_direction)
+                    open_tip_distance = np.linalg.norm(tip - session.robot.pose(session.data, "left").position)
                 active_before = session.active_side
                 pose_targets = {s: p.copy() for s, p in session.targets.items()}
                 revision_before = session._plan_revision
@@ -203,10 +207,13 @@ class RobotControlTests(unittest.TestCase):
                 self.assertEqual(session._plan_revision, revision_before)
                 self.run_ticks(session, 120)
                 positions = session.data.qpos[session.fingers.qpos_ids[side]]
-                # The left thumb bends in the palm plane with fixed base angles.
+                # Slider zero already has a 90-degree bend; closing curls the tip inward.
                 if side == "left":
-                    np.testing.assert_allclose(positions[:2], [0, 0], atol=0.04)
-                    self.assertLess(positions[2], -0.5)
+                    self.assertLess(positions[3], -0.7)
+                    thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
+                    tip = session.data.body("finger_l_link4").xpos + 0.0355 * thumb_direction
+                    closed_tip_distance = np.linalg.norm(tip - session.robot.pose(session.data, "left").position)
+                    self.assertLess(closed_tip_distance, open_tip_distance - 0.005)
                 else:
                     self.assertLess(positions[1], -0.5)
                 self.assertLess(np.max(np.abs(positions[4:])), 0.08)
@@ -228,13 +235,12 @@ class RobotControlTests(unittest.TestCase):
                 reopened = session.data.qpos[session.fingers.qpos_ids[side]]
                 self.assertLess(np.max(np.abs(reopened - session.fingers.opened[side])), 0.15)
                 if side == "left":
-                    palm_normal = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 0]
                     thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    palm_side = -session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 1]
-                    self.assertGreater(np.dot(thumb_direction, palm_side), np.cos(np.deg2rad(3)))
-                    self.assertLess(abs(np.dot(thumb_direction, palm_normal)), np.sin(np.deg2rad(3)))
-                    index_direction = session.data.body("finger_l_link8").xmat.reshape(3, 3)[:, 2]
-                    self.assertLess(abs(np.dot(thumb_direction, index_direction)), np.sin(np.deg2rad(3)))
+                    palm_forward = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 2]
+                    self.assertGreater(np.dot(thumb_direction, palm_forward), np.cos(np.deg2rad(3)))
+                    proximal = -session.data.body("finger_l_link2").xmat.reshape(3, 3)[:, 1]
+                    middle = -session.data.body("finger_l_link3").xmat.reshape(3, 3)[:, 1]
+                    self.assertLess(abs(np.dot(proximal, middle)), np.sin(np.deg2rad(3)))
                 self.assertEqual(session.active_side, active_before)
                 for hand, target in pose_targets.items():
                     np.testing.assert_array_equal(session.targets[hand].position, target.position)
