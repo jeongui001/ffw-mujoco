@@ -31,9 +31,6 @@ class GraspSequence:
         # proximal fingers, before closing pushes the can against the palm.
         self.grasp_position = np.array(state["position_m"]) - rotation @ [0.055, 0, 0.07]
         self.grasp_position[2] = session.objects.table_height + session.robot.model.geom_size[geom, 1]
-        if side == "left":
-            # Keep the pre-bent open thumb above the can rim during descent.
-            self.grasp_position[2] += 0.015
         self.phase = "READY"
         self.message = "Ready"
         self.phase_started = session.data.time

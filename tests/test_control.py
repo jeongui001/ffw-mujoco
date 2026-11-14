@@ -86,6 +86,27 @@ class RobotControlTests(unittest.TestCase):
         self.assertLess(metrics["orientation_error_deg"], 1.0, metrics)
         self.assertLess(abs(metrics["held_height_error_m"]), 0.002, metrics)
 
+    def thumb_tip_position(self, session, side):
+        prefix, direction_sign = ("r", 1) if side == "right" else ("l", -1)
+        distal = session.data.body(f"finger_{prefix}_link4")
+        direction = direction_sign * distal.xmat.reshape(3, 3)[:, 1]
+        return distal.xpos + 0.0355 * direction
+
+    def assert_thumb_points_outward(self, session, side):
+        prefix, direction_sign = ("r", 1) if side == "right" else ("l", -1)
+        normal = session.data.body(f"hx5_{prefix}_base").xmat.reshape(3, 3)[:, 0]
+        tolerance = np.deg2rad(3)
+        for link in (2, 3, 4):
+            frame = session.data.body(f"finger_{prefix}_link{link}").xmat.reshape(3, 3)
+            direction = direction_sign * frame[:, 1]
+            self.assertGreater(np.dot(direction, normal), np.cos(tolerance))
+        frame = session.data.body(f"finger_{prefix}_link4").xmat.reshape(3, 3)
+        thumb_direction = direction_sign * frame[:, 1]
+        for link in (8, 12, 16, 20):
+            frame = session.data.body(f"finger_{prefix}_link{link}").xmat.reshape(3, 3)
+            finger_direction = frame[:, 2]
+            self.assertLess(abs(np.dot(thumb_direction, finger_direction)), np.sin(tolerance))
+
     def test_fixed_base_and_shared_lift_jacobian(self):
         self.assertEqual(self.robot.model.body("base_link").jntnum[0], 0)
         free = np.flatnonzero(self.robot.model.jnt_type == mujoco.mjtJoint.mjJNT_FREE)
@@ -188,17 +209,11 @@ class RobotControlTests(unittest.TestCase):
         for side in ("right", "left"):
             with self.subTest(side=side):
                 session = ControlSession(self.robot)
-                if side == "left":
-                    # The left thumb's distal link extends along its local -Y.
-                    thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    palm_forward = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 2]
-                    proximal = -session.data.body("finger_l_link2").xmat.reshape(3, 3)[:, 1]
-                    middle = -session.data.body("finger_l_link3").xmat.reshape(3, 3)[:, 1]
-                    self.assertAlmostEqual(np.dot(proximal, middle), 0, places=8)
-                    np.testing.assert_allclose(thumb_direction, palm_forward, atol=1e-8)
-                    tip = (session.data.body("finger_l_link4").xpos
-                           + 0.0355 * thumb_direction)
-                    open_tip_distance = np.linalg.norm(tip - session.robot.pose(session.data, "left").position)
+                self.assert_thumb_points_outward(session, side)
+                palm = session.robot.pose(session.data, side)
+                open_offset = self.thumb_tip_position(session, side) - palm.position
+                open_tip_distance = np.linalg.norm(open_offset)
+                open_normal_distance = np.dot(open_offset, palm.rotation[:, 0])
                 active_before = session.active_side
                 pose_targets = {s: p.copy() for s, p in session.targets.items()}
                 revision_before = session._plan_revision
@@ -207,15 +222,19 @@ class RobotControlTests(unittest.TestCase):
                 self.assertEqual(session._plan_revision, revision_before)
                 self.run_ticks(session, 120)
                 positions = session.data.qpos[session.fingers.qpos_ids[side]]
-                # Slider zero already has a 90-degree bend; closing curls the tip inward.
-                if side == "left":
-                    self.assertLess(positions[3], -0.7)
-                    thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    tip = session.data.body("finger_l_link4").xpos + 0.0355 * thumb_direction
-                    closed_tip_distance = np.linalg.norm(tip - session.robot.pose(session.data, "left").position)
-                    self.assertLess(closed_tip_distance, open_tip_distance - 0.005)
-                else:
-                    self.assertLess(positions[1], -0.5)
+                # The base remains opposed; flexion brings the tip toward the palm.
+                mirror_sign = 1 if side == "right" else -1
+                self.assertAlmostEqual(positions[1], -mirror_sign * np.pi / 2, delta=0.04)
+                self.assertGreater(mirror_sign * positions[2], 0.5)
+                self.assertGreater(mirror_sign * positions[3], 0.5)
+                palm = session.robot.pose(session.data, side)
+                closed_offset = self.thumb_tip_position(session, side) - palm.position
+                self.assertLess(np.linalg.norm(closed_offset), open_tip_distance - 0.02)
+                self.assertLess(np.dot(closed_offset, palm.rotation[:, 0]), open_normal_distance - 0.03)
+                prefix = "r" if side == "right" else "l"
+                distal = session.data.body(f"finger_{prefix}_link4")
+                tip_direction = mirror_sign * distal.xmat.reshape(3, 3)[:, 1]
+                self.assertLess(np.dot(tip_direction, palm.rotation[:, 0]), 0)
                 self.assertLess(np.max(np.abs(positions[4:])), 0.08)
                 other = "left" if side == "right" else "right"
                 other_positions = session.data.qpos[session.fingers.qpos_ids[other]]
@@ -234,13 +253,7 @@ class RobotControlTests(unittest.TestCase):
                 self.run_ticks(session, 150)
                 reopened = session.data.qpos[session.fingers.qpos_ids[side]]
                 self.assertLess(np.max(np.abs(reopened - session.fingers.opened[side])), 0.15)
-                if side == "left":
-                    thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    palm_forward = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 2]
-                    self.assertGreater(np.dot(thumb_direction, palm_forward), np.cos(np.deg2rad(3)))
-                    proximal = -session.data.body("finger_l_link2").xmat.reshape(3, 3)[:, 1]
-                    middle = -session.data.body("finger_l_link3").xmat.reshape(3, 3)[:, 1]
-                    self.assertLess(abs(np.dot(proximal, middle)), np.sin(np.deg2rad(3)))
+                self.assert_thumb_points_outward(session, side)
                 self.assertEqual(session.active_side, active_before)
                 for hand, target in pose_targets.items():
                     np.testing.assert_array_equal(session.targets[hand].position, target.position)

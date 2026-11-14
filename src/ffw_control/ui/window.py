@@ -169,8 +169,7 @@ class ControlWindow:
             imgui.end()
             return
         held = self.session.fingers.held_positions[side] is not None
-        description = "Thumb: 0 = 90deg bent" if side == "left" else "0 = open / 1 = closed"
-        imgui.text("Individual pose held" if held else description)
+        imgui.text("Individual pose held" if held else "Thumb: 0 = outward / 1 = curl")
         values = self.session.fingers.targets[side].copy()
         changed = False
         imgui.push_item_width(215)
