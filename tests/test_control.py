@@ -192,7 +192,9 @@ class RobotControlTests(unittest.TestCase):
                     palm_normal = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 0]
                     # The left thumb's distal link extends along its local -Y.
                     thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    np.testing.assert_allclose(thumb_direction, palm_normal, atol=1e-8)
+                    palm_side = -session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 1]
+                    np.testing.assert_allclose(thumb_direction, palm_side, atol=1e-8)
+                    self.assertAlmostEqual(np.dot(thumb_direction, palm_normal), 0, places=8)
                 active_before = session.active_side
                 pose_targets = {s: p.copy() for s, p in session.targets.items()}
                 revision_before = session._plan_revision
@@ -201,11 +203,12 @@ class RobotControlTests(unittest.TestCase):
                 self.assertEqual(session._plan_revision, revision_before)
                 self.run_ticks(session, 120)
                 positions = session.data.qpos[session.fingers.qpos_ids[side]]
-                # The left thumb stays opposed; the right thumb also rotates its yaw.
-                yaw_sign = -1 if side == "right" else 1
-                self.assertGreater(yaw_sign * positions[1], 0.5)
+                # The left thumb bends in the palm plane with fixed base angles.
                 if side == "left":
-                    self.assertAlmostEqual(positions[1], np.pi / 2, delta=0.04)
+                    np.testing.assert_allclose(positions[:2], [0, 0], atol=0.04)
+                    self.assertLess(positions[2], -0.5)
+                else:
+                    self.assertLess(positions[1], -0.5)
                 self.assertLess(np.max(np.abs(positions[4:])), 0.08)
                 other = "left" if side == "right" else "right"
                 other_positions = session.data.qpos[session.fingers.qpos_ids[other]]
@@ -227,7 +230,9 @@ class RobotControlTests(unittest.TestCase):
                 if side == "left":
                     palm_normal = session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 0]
                     thumb_direction = -session.data.body("finger_l_link4").xmat.reshape(3, 3)[:, 1]
-                    self.assertGreater(np.dot(thumb_direction, palm_normal), np.cos(np.deg2rad(3)))
+                    palm_side = -session.data.body("hx5_l_base").xmat.reshape(3, 3)[:, 1]
+                    self.assertGreater(np.dot(thumb_direction, palm_side), np.cos(np.deg2rad(3)))
+                    self.assertLess(abs(np.dot(thumb_direction, palm_normal)), np.sin(np.deg2rad(3)))
                     index_direction = session.data.body("finger_l_link8").xmat.reshape(3, 3)[:, 2]
                     self.assertLess(abs(np.dot(thumb_direction, index_direction)), np.sin(np.deg2rad(3)))
                 self.assertEqual(session.active_side, active_before)
