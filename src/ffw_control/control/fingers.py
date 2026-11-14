@@ -1,16 +1,12 @@
 """Independent thumb/four-finger targets through the existing position servos."""
 
-import json
-
 import numpy as np
-
-from ffw_control.robots.model import PROJECT_ROOT
 
 
 class FingerController:
     def __init__(self, robot, data):
         self.robot = robot
-        config = json.loads((PROJECT_ROOT / "configs/fingers.json").read_text())
+        config = robot.finger_config
         self.velocity_limit = float(config["joint_velocity_limit"])
         if not np.isfinite(self.velocity_limit) or self.velocity_limit <= 0:
             raise ValueError("Finger joint velocity limit must be positive and finite")
@@ -28,7 +24,7 @@ class FingerController:
             self.qpos_ids[side] = robot.model.jnt_qposadr[joint_ids]
             self.actuator_ids[side] = np.array([robot.model.actuator(name).id for name in names])
             self.limits[side] = robot.model.jnt_range[joint_ids].copy()
-            self.opened[side] = np.array(config["thumb_open"] + config["four_fingers_open"] * 4)
+            self.opened[side] = np.array(config["thumb_open"][side] + config["four_fingers_open"] * 4)
             self.closed[side] = np.array(config["thumb_closed"][side] + config["four_fingers_closed"] * 4)
             for endpoint in (self.opened[side], self.closed[side]):
                 if (endpoint.shape != (20,) or not np.isfinite(endpoint).all()

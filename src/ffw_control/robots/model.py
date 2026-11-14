@@ -30,6 +30,7 @@ def pose_error(current: Pose, target: Pose) -> np.ndarray:
 class Robot:
     def __init__(self):
         self.config = json.loads((PROJECT_ROOT / "configs/control.json").read_text())
+        self.finger_config = json.loads((PROJECT_ROOT / "configs/fingers.json").read_text())
         mapping = json.loads((PROJECT_ROOT / "configs/robot.json").read_text())
         spec = mujoco.MjSpec.from_file(str(PROJECT_ROOT / mapping["scene_path"]))
         # This experiment isolates arm control: no floating base or wheel motion.
@@ -76,6 +77,13 @@ class Robot:
     def new_data(self):
         data = mujoco.MjData(self.model)
         data.qpos[self.qpos_ids] = self.nominal
+        # Initialize before simulation starts, so slider zero already matches the
+        # open posture rather than rotating the thumb there on the first ticks.
+        for side, prefix in (("right", "r"), ("left", "l")):
+            opened = (self.finger_config["thumb_open"][side]
+                      + self.finger_config["four_fingers_open"] * 4)
+            for index, angle in enumerate(opened, start=1):
+                data.joint(f"finger_{prefix}_joint{index}").qpos[0] = angle
         mujoco.mj_forward(self.model, data)
         return data
 
