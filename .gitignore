@@ -1,5 +1,4 @@
 # Local Python environment and build artifacts
-/requirements-ffw/
 /.venv/
 __pycache__/
 *.py[cod]

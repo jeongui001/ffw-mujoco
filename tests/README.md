@@ -1,7 +1,7 @@
 # 자동 테스트
 
 ```bash
-source requirements-ffw/bin/activate
+source .venv/bin/activate
 python -m unittest discover -s tests -v
 ```
 

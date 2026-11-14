@@ -14,7 +14,7 @@ MuJoCo에서 **패널 1(오른손)**과 **패널 3(왼손)**의 각 6개 슬라�
 프로젝트 루트에서 기존 가상환경을 활성화합니다.
 
 ```bash
-source requirements-ffw/bin/activate
+source .venv/bin/activate
 python -m pip install -e .
 ffw-control
 ```
@@ -26,14 +26,14 @@ GUI 창을 열 수 있는 데스크톱 터미널에서 실행하세요.
 새 환경을 만드는 경우:
 
 ```bash
-python3 -m venv --prompt requirements-ffw requirements-ffw
-source requirements-ffw/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -e .
 ```
 
 기본 패키지는 기존 `requirements-ffw.txt`, 추가 솔버 패키지는 `requirements-control.txt`에서 읽습니다.
-가상환경 폴더 이름은 `requirements-ffw`이며 종료는 `deactivate`입니다.
-VS Code 인터프리터는 `requirements-ffw/bin/python`을 선택합니다.
+가상환경 폴더 이름은 `.venv`이며 종료는 `deactivate`입니다.
+VS Code 인터프리터는 `.venv/bin/python`을 선택합니다.
 
 ## 조작
 
@@ -104,14 +104,14 @@ ROS를 불러온 터미널에서는 `PYTHONPATH`가 가상환경에도 상속됩
 프로젝트 패키지만 대상으로 의존성을 점검하려면 다음을 실행합니다.
 
 ```bash
-env -u PYTHONPATH requirements-ffw/bin/python -m pip check
+env -u PYTHONPATH .venv/bin/python -m pip check
 ```
 
 ## 폴더 구조
 
 ```text
 mujoco_proj/
-├── requirements-ffw/             # 로컬 가상환경 (Git 제외)
+├── .venv/                       # 로컬 가상환경 (Git 제외)
 ├── requirements-ffw.txt          # 기존 MuJoCo/UI 패키지
 ├── requirements-control.txt      # OSQP/SciPy 버전
 ├── pyproject.toml                # 패키지 및 실행 명령
