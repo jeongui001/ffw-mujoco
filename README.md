@@ -9,8 +9,6 @@ MuJoCo에서 **패널 1(오른손)**과 **패널 3(왼손)**의 각 6개 슬라�
 0.8m 정육면체와 자유 캔 두 개를 배치했으며 손가락의 물리 접촉으로 잡고 들어 올릴 수 있습니다.
 패널 6의 픽업 버튼으로 양손의 접근·파지·들기를 바로 확인할 수 있습니다. 자동 충돌 회피는 후속 범위입니다.
 
-공부는 [코드 구조와 공부 순서](docs/architecture.md)부터 시작하세요.
-
 ## 실행
 
 프로젝트 루트에서 기존 가상환경을 활성화합니다.
@@ -67,8 +65,8 @@ VS Code 인터프리터는 `.venv/bin/python`을 선택합니다.
 
 패널 6은 오른손 기준 IK 오차, 시뮬레이션/실제 시간, 실제 루프 주파수와 EMA를 표시합니다.
 실제 추종 오차, 반대 손 높이 오차, 리프트 위치, 양팔·리프트 구동기 포화 개수도 보여줍니다.
-각 캔의 접촉·들림 상태와 작업대 기준 이격도 표시합니다. 물성과 판정 기준은 [파지 안내](docs/grasping.md)에 정리했습니다.
-직접 제어 중 IK 오차는 `N/A`입니다. [패널 5·6 안내](docs/joint_monitor.md)에 지표와 모드 전환 규칙을 정리했습니다.
+각 캔의 접촉·들림 상태와 작업대 기준 이격도 표시합니다.
+직접 제어 중 IK 오차는 `N/A`입니다.
 `IK reached / settling`은 계산상 목표에는 도달했지만 물리 추종이 아직 진행 중이라는 뜻입니다.
 `Tracking / limited`에서는 목표를 추종 중이거나 현재 제약 때문에 잔차가 남을 수 있습니다.
 QP가 실패하면 `STOP` 상태에서 마지막 유효 관절 목표를 유지합니다. 새 목표 또는 Reset으로 다시 시도할 수 있습니다.
@@ -97,9 +95,6 @@ ffw-control --headless --seconds 3 --joint head_joint1=0.2 --joint finger_r_join
 # 물리 접촉으로 캔 파지·들기·유지 (기본 25초)
 ffw-control --headless --grasp-demo right
 ffw-control --headless --grasp-demo left
-
-# 회귀 테스트
-python -m unittest discover -s tests -v
 ```
 
 `--seconds`는 시뮬레이션 시간입니다. Headless 실행은 실시간 대기 없이 계산하며 종료 시 오차와 상태를 JSON으로 출력합니다.
@@ -142,17 +137,9 @@ mujoco_proj/
 │   ├── simulation/grasp.py      # 기존 제어 경로를 사용하는 픽업 시퀀스
 │   ├── simulation/objects.py    # 캔 접촉·들림 관측
 │   └── ui/window.py             # 슬라이더·MuJoCo 렌더링
-├── scripts/check_model.py        # 기존 원본 모델 점검
-├── tests/test_control.py         # 지속적인 회귀 검증
-├── scenes/grasp.xml              # 정육면체·자유 캔 두 개·접촉 설정
-└── docs/                        # 프로젝트 Markdown 문서
+└── scenes/grasp.xml              # 정육면체·자유 캔 두 개·접촉 설정
 ```
 
 캡처를 저장하면 `outputs/`가 자동으로 생성됩니다. 생성 결과는 Git에서 제외합니다.
 가상환경과 로컬 설치에 필요한 `*.egg-info`는 학습 대상 코드가 아닙니다.
 로봇 모델의 라이선스는 [robotis_ffw/LICENSE](robotis_ffw/LICENSE)에 보관합니다.
-
-전체 기능 요구사항은 [사용자 기능 명세](docs/functional_spec.md),
-모듈의 역할과 읽는 순서는 [코드 구조와 공부 순서](docs/architecture.md),
-현재 제어 방식과 제한은 [패널 1·3 제어 문서](docs/panel1_control_design.md)를 참고하세요.
-손가락의 조작과 설정은 [패널 2·4 제어 문서](docs/finger_control.md)에 정리했습니다.

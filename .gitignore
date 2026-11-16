@@ -7,7 +7,28 @@ __pycache__/
 /dist/
 /.pytest_cache/
 /.ruff_cache/
+/.mypy_cache/
+/.coverage
+/htmlcov/
 
 # Local editor settings and generated experiment results
 /.vscode/
+/.idea/
 /outputs/
+*.log
+.DS_Store
+
+# Local credentials and tool settings
+/.aws/
+/.codex/
+/.agents/
+.env
+.env.*
+!.env.example
+
+# Keep development material locally; publish the runnable project only
+/docs/
+/tests/
+/scripts/
+/AGENTS.md
+/실행방법.txt
