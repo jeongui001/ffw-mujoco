@@ -46,6 +46,7 @@ ffw-control
 
 시작과 `Reset` 직후에는 리프트가 최상단(조인트 위치 0.0m)에 있고, 양팔의 팔꿈치가 90° 굽혀져 있습니다.
 손바닥은 서로 마주보고, 네 손가락은 로봇 앞쪽을 향하며, 손목은 꺾이지 않은 자세입니다.
+리프트의 이동 범위는 -0.5~0.0m이며, 음수 방향으로 움직이면 상체가 내려갑니다.
 
 ## 화면과 조작
 
@@ -98,9 +99,10 @@ X는 빨강, Y는 초록, Z는 파랑입니다. 위치 슬라이더의 X/Y/Z 기
 ### 캔 픽업 데모
 
 `ffw-control --grasp-demo right` 또는 `ffw-control --grasp-demo left`로 실행합니다.
-접근 → 파지 → 들어 올리기 → 3초 유지 순서로 진행합니다.
+접근 → 캔 높이로 내리기 → 파지 → 손을 14cm 올리기 → 3초 유지 순서로 진행합니다.
 완료 후 해당 손의 `Thumb`와 `Four fingers`를 모두 0으로 되돌리면 캔을 놓습니다.
-진행 중 손이나 조인트를 수동 조작하면 시퀀스가 취소되고 수동 입력이 적용됩니다.
+진행 중 손의 위치·방향이나 픽업 중인 손의 손가락 목표를 바꾸거나, `Direct joints`를 켜면 시퀀스가 취소됩니다.
+`Reset`은 데모를 종료하고 초기 배치로 돌아갑니다. 다시 실행하려면 위 명령으로 프로그램을 새로 시작하세요.
 
 ### 조인트 직접 제어
 
@@ -115,18 +117,21 @@ X는 빨강, Y는 초록, Z는 파랑입니다. 위치 슬라이더의 X/Y/Z 기
 
 ### 상태 표시 읽기
 
-패널 6에는 다음 6개 항목을 표시합니다.
+패널 6에는 IK 제어 중 다음 6개 항목을 표시합니다.
+IK 오차는 **계산된 관절 목표로 얻은 손 자세**와 손 목표를 비교한 값이며, 실제 로봇 자세의 추종 오차와는 다릅니다.
 
 | 표시 | 의미 |
 | --- | --- |
 | `ik_err (R)` | 오른손 기준 IK 위치 오차(mm). 조인트 직접 제어 중에는 `N/A` |
-| `Right IK rotation` | 오른손 기준 IK 회전 오차(°) |
+| `Right IK rotation` | 오른손이 활성 손일 때의 IK 회전 오차(°) |
 | `sim_time` | 시뮬레이션 시간(s) |
 | `wall_time` | 실행 후 실제 경과 시간(s) |
 | `loop_freq` | 실제 루프 주파수(Hz) |
 | `loop_freq (ema)` | 루프 주파수의 지수 이동 평균(Hz) |
 
 오른손이 반대 손이면 방향 오차 대신 `Right rotation: free`를 표시합니다.
+조인트 직접 제어 중에는 회전 오차 줄을 숨기고 나머지 5개 항목만 표시합니다.
+`loop_freq`는 제어 루프의 실제 실행 간격으로 계산하므로, 설정된 제어 주파수 50Hz와 다를 수 있습니다.
 
 ## 화면 없이 실행하기
 
@@ -171,6 +176,28 @@ ffw-control --headless --grasp-demo left
 `--grasp-demo`도 수동 제어 입력과 함께 사용할 수 없습니다.
 전체 옵션은 `ffw-control --help`에서 확인할 수 있습니다.
 
+### JSON 결과 읽기
+
+패널 6에 없는 실제 추종 오차, 리프트 위치, 캔 상태와 픽업 진행 상황은 화면 없는 실행의 JSON에서 확인합니다.
+
+| 항목 | 의미 |
+| --- | --- |
+| `position_error_m` / `orientation_error_deg` | 실제 활성 손의 위치·방향 추종 오차(m / °) |
+| `ik_position_error_m` / `ik_orientation_error_deg` | 계산된 관절 목표의 활성 손 위치·방향 오차(m / °) |
+| `held_position_error_m` / `ik_held_position_error_m` | 실제 자세 / 계산된 관절 목표의 반대 손 XYZ 위치 오차 크기(m) |
+| `ik_err` / `right_ik_orientation_error_deg` | 패널 6과 같은 오른손 기준 IK 오차. JSON의 위치 단위는 m |
+| `lift_m` | 실제 리프트 조인트 위치(m) |
+| `objects` | 양쪽 캔의 위치·접촉·들림 상태 |
+| `grasp_demo` | 데모의 대상 손, 진행 단계(`phase`), 설명(`message`). 데모를 실행하지 않으면 `null` |
+| `mode` / `status` | 계산 모드와 추종 상태 |
+
+오차 항목은 조인트 직접 제어 중 `null`이며, `right_ik_orientation_error_deg`는 오른손이 반대 손일 때도 `null`입니다.
+`status`가 `IK reached / settling`이면 계산된 관절 목표가 허용 오차 안에 있고, `Reached`이면 실제 로봇도 허용 오차 안에 있습니다.
+`Tracking / limited`는 아직 추종 중이거나 제약 때문에 오차가 남은 상태입니다.
+`mode`가 `STOP`이면 QP 계산 실패로 마지막 유효 관절 목표를 유지합니다.
+화면 없는 실행은 `STOP` 또는 픽업 단계 `FAILED`일 때 JSON을 출력한 뒤 종료 코드 1을 반환합니다.
+종료 코드 0만으로 목표 도달이나 픽업 완료를 뜻하지는 않으므로, `status`와 `grasp_demo.phase`를 함께 확인하세요.
+
 ### GUI 화면 저장
 
 다음 명령은 GUI를 120프레임 동안 실행하고 마지막 화면을 저장한 뒤 종료합니다. 데스크톱 환경이 필요합니다.
@@ -187,7 +214,7 @@ ffw-control --frames 120 --screenshot outputs/panels.png
 
 | 파일 | 바꿀 수 있는 내용 |
 | --- | --- |
-| [configs/robot.json](configs/robot.json) | 로봇 이름, 장면 경로, 조인트·손 기준점 매핑 |
+| [configs/robot.json](configs/robot.json) | 장면 경로, IK용 팔·공유 리프트 조인트, 손 기준점 매핑 |
 | [configs/control.json](configs/control.json) | 초기 자세, 제어 주기, 속도·가속도 제한, 허용 오차, 제어 게인 |
 | [configs/fingers.json](configs/fingers.json) | 손가락 펴기/접기 자세, 명령 속도 제한 |
 | [scenes/grasp.xml](scenes/grasp.xml) | 작업대·캔 배치와 물리 접촉 설정 |
@@ -197,9 +224,8 @@ ffw-control --frames 120 --screenshot outputs/panels.png
 `position_tolerance`와 `orientation_tolerance_degrees`는 활성 손의 위치·방향 도달 판정 기준입니다.
 `held_position_tolerance`는 반대 손의 XYZ 위치 오차 크기에 대한 도달 판정 기준이며, 기본값은 2mm입니다.
 이 허용 오차들은 하드 제약이 아니라 상태 표시를 위한 기준입니다.
-이전의 `held_height_tolerance`, `held_height_tracking_tolerance`, `feasibility_iterations` 설정은 제거했습니다.
-화면 없는 실행의 JSON에서도 `held_height_error_m` 대신 `held_position_error_m`을 사용합니다.
-`ik_held_position_error_m`은 계산된 관절 목표의 반대 손 위치 오차이며, 도달성 검사 상태인 `planning` 항목은 제거했습니다.
+`initial_lift`는 시작과 `Reset` 시의 리프트 조인트 위치이며, 기본값 0.0은 최상단입니다.
+기본 제어 주기는 0.02초(50Hz), 물리 계산 간격은 0.002초(500Hz)입니다.
 
 ### 코드를 읽으려면
 
