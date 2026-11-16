@@ -10,7 +10,7 @@ class JointServo:
         model = robot.model
         ids = robot.actuator_ids
         self.kp = robot.position_gains.copy()
-        self.kd = robot.damping_gains.copy()
+        self.kd = robot.damping_gains * 0.5
         # The lift's large frictionloss needs more stiffness than the XML demo.
         self.kp[-1] = robot.config["lift_position_gain"]
         self.kd[-1] = robot.config["lift_velocity_gain"]
