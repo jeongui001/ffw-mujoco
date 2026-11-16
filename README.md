@@ -190,6 +190,7 @@ ffw-control --headless --grasp-demo left
 | `objects` | 양쪽 캔의 위치·접촉·들림 상태 |
 | `grasp_demo` | 데모의 대상 손, 진행 단계(`phase`), 설명(`message`). 데모를 실행하지 않으면 `null` |
 | `mode` / `status` | 계산 모드와 추종 상태 |
+| `saturated_actuators` | 마지막 물리 스텝에서 양팔·리프트 구동기 명령이 힘·토크 제한으로 잘린 개수. 누적 횟수가 아님 |
 
 오차 항목은 조인트 직접 제어 중 `null`이며, `right_ik_orientation_error_deg`는 오른손이 반대 손일 때도 `null`입니다.
 `status`가 `IK reached / settling`이면 계산된 관절 목표가 허용 오차 안에 있고, `Reached`이면 실제 로봇도 허용 오차 안에 있습니다.
@@ -218,6 +219,32 @@ ffw-control --frames 120 --screenshot outputs/panels.png
 | [configs/control.json](configs/control.json) | 초기 자세, 제어 주기, 속도·가속도 제한, 허용 오차, 제어 게인 |
 | [configs/fingers.json](configs/fingers.json) | 손가락 펴기/접기 자세, 명령 속도 제한 |
 | [scenes/grasp.xml](scenes/grasp.xml) | 작업대·캔 배치와 물리 접촉 설정 |
+| [robotis_ffw/ffw_sh5.xml](robotis_ffw/ffw_sh5.xml) | 관절의 물리 감쇠·마찰·관성, 원본 서보 게인과 구동기 힘·토크 제한 |
+| [src/ffw_control/control/dynamics/servo.py](src/ffw_control/control/dynamics/servo.py) | 런타임 PD 제어, 양팔 `Kd` 배율과 힘 제한 적용 |
+
+현재 주요 설정은 다음과 같습니다. 설정 파일을 바꾸면 프로그램을 재시작하거나 `Reset`으로 모델을 다시 생성하세요.
+
+| 설정 | 현재 값 | 적용 대상 |
+| --- | --- | --- |
+| `arm_velocity_limit` | 3.15 rad/s | 양팔 관절 목표 속도 |
+| `lift_velocity_limit` | 0.1575 m/s | 리프트 목표 속도 |
+| `arm_acceleration_limit` | 3.0 rad/s² | IK에서 양팔 관절 명령 가속도 |
+| `lift_acceleration_limit` | 0.18 m/s² | IK에서 리프트 명령 가속도 |
+| `hand_linear_velocity_limit` | 0.45 m/s | IK에서 양손 위치 오차를 보정하는 요구 속도 |
+| `hand_angular_velocity_limit` | 2.25 rad/s | IK에서 활성 손 방향 오차를 보정하는 요구 속도 |
+| `task_gain` | 4.0 s⁻¹ | IK 오차를 요구 속도로 변환하는 비례 게인 |
+
+IK는 계산용 기준 자세에서 `요구 속도 = task_gain × 목표 오차`를 구한 뒤 손 속도 상한을 적용하고,
+관절 위치·속도·가속도·제동 거리 제약 안에서 관절 목표를 계산합니다.
+`Direct joints`에서도 팔·리프트의 목표 속도 제한은 적용하지만, IK의 가속도·제동 거리 제약은 적용하지 않습니다.
+이 제한들은 목표 생성에 적용되며 실제 로봇의 속도·가속도 상한을 보장하지 않습니다.
+짧은 이동에서는 가속도 제한이나 작은 목표 오차 때문에 최고 속도에 도달하지 않을 수 있습니다.
+
+양팔의 `Kp`는 XML 원본 값을 사용하고, `Kd`는 원본 서보에서 계산한 값의 50%를 사용합니다.
+리프트는 별도로 `lift_position_gain=100000`, `lift_velocity_gain=600`을 사용합니다.
+관절의 물리 `damping`과 구동기 힘·토크 제한은 원본 값을 유지합니다.
+팔 토크 제한은 관절 1·2가 ±61.4 Nm, 3~6이 ±31.7 Nm, 7이 ±5.1 Nm입니다.
+토크 제한을 높이는 것은 이미 포화된 명령에만 영향을 주며, 접촉 시 더 큰 힘을 낼 수 있습니다.
 
 패키지와 실행 명령은 [pyproject.toml](pyproject.toml), 의존성과 버전은 [requirements.txt](requirements.txt)에서 관리합니다.
 
