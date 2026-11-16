@@ -1,1 +1,1 @@
-"""Future task priorities and constraint handling."""
+"""Lexicographic task priorities and shared hard constraints."""

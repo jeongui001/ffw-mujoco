@@ -34,7 +34,7 @@ class GraspSequence:
         self.phase = "READY"
         self.message = "Ready"
         self.phase_started = session.data.time
-        self.command_revision = session._plan_revision
+        self.command_revision = session._target_revision
         self.finger_target = np.zeros(2)
 
     @property
@@ -52,7 +52,7 @@ class GraspSequence:
 
     def _move(self, phase, position):
         self.session.set_target(self.side, position, self.angles)
-        self.command_revision = self.session._plan_revision
+        self.command_revision = self.session._target_revision
         self.phase = phase
         self.message = phase.title()
         self.phase_started = self.session.data.time
@@ -66,7 +66,7 @@ class GraspSequence:
             return
         session = self.session
         # Manual input takes over before the sequence can issue another command.
-        if (session.control_mode != "IK" or self.command_revision != session._plan_revision
+        if (session.control_mode != "IK" or self.command_revision != session._target_revision
                 or not np.array_equal(session.fingers.targets[self.side], self.finger_target)):
             self.cancel()
             return

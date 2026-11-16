@@ -136,7 +136,7 @@ class ControlWindow:
                 imgui.text(f"Actual {label}: {value:.3f} m")
             imgui.end()
             return
-        imgui.text_colored("ACTIVE" if session.active_side == side else "Height held",
+        imgui.text_colored("ACTIVE" if session.active_side == side else "XYZ hold / rotation free",
                            0.35, 0.8, 1.0)
         position = session.targets[side].position.copy()
         angles = session.rpy[side].copy()
@@ -157,7 +157,7 @@ class ControlWindow:
         imgui.text("World XYZ / rotation from initial hand")
         imgui.end()
         if changed:
-            session.set_target(side, position, angles, asynchronous=True)
+            session.set_target(side, position, angles)
 
     def finger_panel(self, side, number, top):
         imgui.set_next_window_position(0, top)
@@ -195,7 +195,6 @@ class ControlWindow:
         if imgui.button("Reset"):
             # Recreate from the original model, not the already-converted motors.
             from ffw_control.simulation.session import ControlSession
-            self.session.close()
             self.session = ControlSession()
             self.paused = False
             self.pickup_error = ""
@@ -259,19 +258,20 @@ class ControlWindow:
             imgui.text("ik_err (R): N/A in joint mode")
         else:
             imgui.text(f"ik_err (R): {metrics['ik_err'] * 1000:.2f} mm")
-            imgui.text(f"Right IK rotation: {metrics['right_ik_orientation_error_deg']:.2f} deg")
+            rotation_error = metrics["right_ik_orientation_error_deg"]
+            imgui.text("Right rotation: free" if rotation_error is None else
+                       f"Right IK rotation: {rotation_error:.2f} deg")
         imgui.text(f"sim_time: {metrics['sim_time']:.2f} s")
         imgui.text(f"wall_time: {metrics['wall_time']:.2f} s")
         imgui.text(f"loop_freq: {metrics['loop_freq']:.1f} Hz")
         imgui.text(f"loop_freq (ema): {metrics['loop_freq_ema']:.1f} Hz")
         imgui.separator()
-        state = "Checking arm reach" if metrics["planning"] else metrics["status"]
         paused = " | PAUSED" if metrics["paused"] else ""
         imgui.text(f"{metrics['control_mode']} / {metrics['mode']}{paused}")
-        imgui.text_wrapped(state)
+        imgui.text_wrapped(metrics["status"])
         if metrics["control_mode"] == "IK":
             imgui.text(f"Actual {metrics['active_hand']}: {metrics['position_error_m']*1000:.2f} mm / {metrics['orientation_error_deg']:.2f} deg")
-            imgui.text(f"Other hand Z error: {metrics['held_height_error_m']*1000:.2f} mm")
+            imgui.text(f"Other hand XYZ error: {metrics['held_position_error_m']*1000:.2f} mm")
         imgui.text(f"Lift: {metrics['lift_m']:.4f} m | saturated: {metrics['saturated_actuators']}")
         imgui.text(f"Compute: {metrics['compute_ms']:.1f} ms")
         imgui.separator()
@@ -343,7 +343,6 @@ class ControlWindow:
                     break
                 glfw.swap_buffers(self.window)
         finally:
-            self.session.close()
             self.context.free()
             self.renderer.shutdown()
             imgui.destroy_context(self.imgui_context)

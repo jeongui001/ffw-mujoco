@@ -1,8 +1,8 @@
-"""Bounded dual-arm differential IK and fixed-lift feasibility search."""
+"""Bounded dual-arm differential IK with shared position and pose priorities."""
 
 import numpy as np
 
-from ffw_control.control.hierarchy.qp import QPFailure, solve_hierarchy, solve_qp
+from ffw_control.control.hierarchy.qp import QPFailure, solve_hierarchy
 from ffw_control.robots.model import pose_error
 
 
@@ -22,6 +22,7 @@ class DifferentialIK:
                 and errors[1] <= factor * np.deg2rad(self.config["orientation_tolerance_degrees"]))
 
     def task_velocity(self, error):
+        """Limit a position-only or full-pose correction velocity."""
         velocity = self.config["task_gain"] * error
         for section, limit in ((slice(0, 3), self.config["hand_linear_velocity_limit"]),
                                (slice(3, 6), self.config["hand_angular_velocity_limit"])):
@@ -49,67 +50,29 @@ class DifferentialIK:
             raise QPFailure("Joint braking/acceleration constraints conflict")
         return lower / robot.velocity_limits, upper / robot.velocity_limits
 
-    def arm_feasible(self, source, side, target):
-        """Test kinematic residual, independently of physical tracking delay."""
-        robot = self.robot
-        data = robot.new_data()
-        data.qpos[:] = source.qpos
-        robot.update_kinematics(data)
-        section = robot.arm_slice(side)
-        indices = robot.qpos_ids[section]
-        speed = robot.velocity_limits[section]
-        dt = 0.05
-        for _ in range(self.config["feasibility_iterations"]):
-            if self.reached(self.errors(data, side, target)):
-                return True
-            jacobian = robot.jacobian(data, side)[:, section] * speed
-            error = pose_error(robot.pose(data, side), target)
-            task = self.task_scale @ jacobian
-            desired = self.task_scale @ self.task_velocity(error)
-            lower, upper = self.bounds(data, dt)
-            # Tiny damping selects a bounded minimum-motion solution near singularities.
-            matrix = np.vstack((task, 1e-3 * np.eye(7)))
-            velocity = solve_qp(matrix, np.concatenate((desired, np.zeros(7))),
-                                np.eye(7), lower[section], upper[section]) * speed
-            data.qpos[indices] += dt * velocity
-            robot.update_kinematics(data)
-        return self.reached(self.errors(data, side, target))
-
-    def velocity(self, data, side, target, held_pose, allow_lift, dt, previous=None):
+    def velocity(self, data, side, target, held_position, dt, previous=None):
         robot = self.robot
         speed = robot.velocity_limits
         passive = "left" if side == "right" else "right"
         lower, upper = self.bounds(data, dt, previous)
-        if not allow_lift:
-            lower[robot.arm_slice(passive)] = 0
-            upper[robot.arm_slice(passive)] = 0
-            lower[-1] = upper[-1] = 0
         constraints = np.eye(15)
-
-        passive_jacobian = robot.jacobian(data, passive) * speed
-        height_error = held_pose.position[2] - robot.pose(data, passive).position[2]
-        tolerance = self.config["held_height_tolerance"]
-        constraints = np.vstack((constraints, passive_jacobian[2]))
-        lower = np.append(lower, (height_error - tolerance) / dt)
-        upper = np.append(upper, (height_error + tolerance) / dt)
 
         jacobian = robot.jacobian(data, side) * speed
         desired = self.task_velocity(pose_error(robot.pose(data, side), target))
-        primary = (self.task_scale @ jacobian, self.task_scale @ desired)
-        lift = np.zeros((1, 15))
-        lift[0, -1] = 1
+        passive_jacobian = robot.jacobian(data, passive)[:3] * speed
+        passive_desired = self.task_velocity(held_position - robot.pose(data, passive).position)
+        # Both positions have equal weight; passive-hand orientation is free.
+        primary = (np.vstack((self.task_scale @ jacobian, passive_jacobian)),
+                   np.concatenate((self.task_scale @ desired, passive_desired)))
 
         position = data.qpos[robot.qpos_ids]
-        posture_velocity = 0.15 * (robot.nominal - position) / speed
+        # The lift can settle at any height instead of returning to its start.
+        posture_matrix = np.eye(15)[:14]
+        posture_velocity = 0.15 * (robot.nominal[:14] - position[:14]) / speed[:14]
         previous_scaled = np.zeros(15) if previous is None else previous / speed
-        # Full passive-hand pose is a soft preference; only height is mandatory.
-        passive_desired = self.task_velocity(pose_error(robot.pose(data, passive), held_pose))
         secondary_matrix = np.vstack((np.eye(15), 0.5 * np.eye(15),
-                                      0.1 * np.eye(15), passive_jacobian))
+                                      0.1 * posture_matrix))
         secondary_target = np.concatenate((np.zeros(15), 0.5 * previous_scaled,
-                                           0.1 * posture_velocity, passive_desired))
-        tasks = [primary]
-        if allow_lift:
-            tasks.append((lift, np.zeros(1)))
-        tasks.append((secondary_matrix, secondary_target))
+                                           0.1 * posture_velocity))
+        tasks = [primary, (secondary_matrix, secondary_target)]
         return solve_hierarchy(tasks, constraints, lower, upper) * speed

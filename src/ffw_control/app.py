@@ -70,7 +70,6 @@ def main():
         if requested_joints:
             result["joints"] = [row for row in session.joint_states() if row["name"] in requested_joints]
         print(json.dumps(result, indent=2))
-        session.close()
         if session.mode == "STOP" or (session.grasp_demo is not None and session.grasp_demo.phase == "FAILED"):
             raise SystemExit(1)
     else:
