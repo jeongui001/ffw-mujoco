@@ -116,35 +116,6 @@ class ControlWindow:
             mujoco.mjv_moveCamera(self.session.robot.model, action,
                                   dx / height, dy / height, self.scene, self.camera)
 
-    def draw_hand_frames(self):
-        """Draw measured palm frames as decorations, without physical geometry."""
-        colors = ((1.0, 0.15, 0.15, 1.0), (0.15, 1.0, 0.15, 1.0),
-                  (0.2, 0.5, 1.0, 1.0))
-        for side, prefix in (("right", "R"), ("left", "L")):
-            pose = self.session.robot.pose(self.session.data, side)
-            for axis, (label, color) in enumerate(zip("XYZ", colors)):
-                geom = self.scene.geoms[self.scene.ngeom]
-                mujoco.mjv_initGeom(geom, mujoco.mjtGeom.mjGEOM_ARROW,
-                                    np.zeros(3), pose.position, np.eye(3).ravel(),
-                                    np.array(color, dtype=np.float32))
-                endpoint = pose.position + 0.15 * pose.rotation[:, axis]
-                mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_ARROW,
-                                     0.007, pose.position, endpoint)
-                # MuJoCo 3.3.7 renders the shaft and tip over half the Z size.
-                geom.size[2] *= 2
-                geom.category = mujoco.mjtCatBit.mjCAT_DECOR
-                geom.emission = 0.8
-                self.scene.ngeom += 1
-                # Connector labels sit at their origin, so place separate labels
-                # at the axis tips to keep X/Y/Z from overlapping at the palm.
-                geom = self.scene.geoms[self.scene.ngeom]
-                mujoco.mjv_initGeom(geom, mujoco.mjtGeom.mjGEOM_LABEL,
-                                    np.zeros(3), endpoint, np.eye(3).ravel(),
-                                    np.array(color, dtype=np.float32))
-                geom.category = mujoco.mjtCatBit.mjCAT_DECOR
-                geom.label = f"{prefix}:{label}"
-                self.scene.ngeom += 1
-
     def hand_panel(self, side, number, top):
         session = self.session
         accent = RIGHT if side == "right" else LEFT
@@ -334,7 +305,6 @@ class ControlWindow:
                 GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
                 mujoco.mjv_updateScene(self.session.robot.model, self.session.data, self.option,
                                        None, self.camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene)
-                self.draw_hand_frames()
                 mujoco.mjr_render(mujoco.MjrRect(sidebar, 0, max(1, width-sidebar), height),
                                    self.scene, self.context)
                 imgui.render()
