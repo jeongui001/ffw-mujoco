@@ -197,7 +197,8 @@ ffw-control --headless --grasp-demo left
 | `saturated_actuators` | 마지막 물리 스텝에서 양팔·리프트 구동기 명령이 힘·토크 제한으로 잘린 개수. 누적 횟수가 아님 |
 
 오차 항목은 조인트 직접 제어 중 `null`이며, `right_ik_orientation_error_deg`는 오른손이 반대 손일 때도 `null`입니다.
-`status`가 `IK reached / settling`이면 계산된 관절 목표가 허용 오차 안에 있고, `Reached`이면 실제 로봇도 허용 오차 안에 있습니다.
+`status`가 `IK reached / settling`이면 기준 상태의 활성 손 위치·방향과 반대 손 XYZ가 모두 허용 오차 안에 있습니다.
+`Reached`는 실제 활성 손 위치·방향과 반대 손 XYZ가 모두 허용 오차 안임을 뜻합니다. 반대 손 방향은 판정에 사용하지 않습니다.
 `Tracking / limited`는 아직 추종 중이거나 제약 때문에 오차가 남은 상태입니다.
 `mode`가 `STOP`이면 QP 계산 실패로 마지막 유효 관절 목표를 유지합니다.
 화면 없는 실행은 `STOP` 또는 픽업 단계 `FAILED`일 때 JSON을 출력한 뒤 종료 코드 1을 반환합니다.
