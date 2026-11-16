@@ -17,7 +17,7 @@
   "loop_frequency_ema_alpha": 0.1,
   "lift_position_gain": 100000.0,
   "lift_velocity_gain": 600.0,
-  "initial_lift": -0.20,
+  "initial_lift": 0.0,
   "initial_left_arm": [0.0, 0.42, 0.0, -1.5707963267948966, 0.42, 0.0, 0.0],
   "initial_right_arm": [0.0, -0.42, 0.0, -1.5707963267948966, -0.42, 0.0, 0.0]
 }
