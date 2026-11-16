@@ -12,6 +12,8 @@ import numpy as np
 from imgui.integrations.glfw import GlfwRenderer
 from OpenGL import GL
 
+from ffw_control.ui.theme import BACKGROUND, LEFT, MUTED, RIGHT, TEXT, apply_theme
+
 
 def save_screenshot(path, width, height):
     """Write the complete OpenGL framebuffer, including panels, as PNG."""
@@ -32,21 +34,26 @@ def save_screenshot(path, width, height):
 
 
 class ControlWindow:
-    SIDEBAR = 330
+    SIDEBAR = 400
+    MARGIN = 12
+    PANEL_FLAGS = (imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE
+                   | imgui.WINDOW_NO_COLLAPSE | imgui.WINDOW_NO_TITLE_BAR)
 
     def __init__(self, session):
         if not glfw.init():
             raise RuntimeError("Cannot open display. Use --headless for model/controller checks.")
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 2)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 1)
-        self.window = glfw.create_window(1400, 850, "FFW-SH5 | Dual-hand HQP control", None, None)
+        self.window = glfw.create_window(1500, 960, "FFW-SH5 | Control Studio", None, None)
         if not self.window:
             glfw.terminate()
             raise RuntimeError("Cannot create an OpenGL window")
         glfw.make_context_current(self.window)
+        glfw.set_window_size_limits(self.window, 1120, 850, glfw.DONT_CARE, glfw.DONT_CARE)
         glfw.swap_interval(1)
         self.imgui_context = imgui.create_context()
         imgui.get_io().ini_file_name = None
+        self.heading_font = apply_theme()
         self.renderer = GlfwRenderer(self.window)
         self.session = session
         self.scene = mujoco.MjvScene(session.robot.model, maxgeom=4000)
@@ -62,14 +69,30 @@ class ControlWindow:
         self.paused = False
         self.joint_filter = ""
         glfw.set_scroll_callback(self.window, self.scroll)
-        style = imgui.get_style()
-        style.window_rounding = 5
-        style.frame_rounding = 3
-        style.colors[imgui.COLOR_WINDOW_BACKGROUND] = (0.09, 0.105, 0.12, 0.97)
-        style.colors[imgui.COLOR_FRAME_BACKGROUND] = (0.16, 0.19, 0.22, 1)
-        style.colors[imgui.COLOR_SLIDER_GRAB] = (0.2, 0.6, 0.95, 1)
-        style.colors[imgui.COLOR_SLIDER_GRAB_ACTIVE] = (0.4, 0.75, 1, 1)
-        style.colors[imgui.COLOR_PLOT_HISTOGRAM] = (0.2, 0.6, 0.95, 1)
+
+    def begin_panel(self, number, title, top, height, accent=RIGHT, left=None, width=None):
+        """Give every panel the same inset, heading, and quiet number marker."""
+        imgui.set_next_window_position(self.MARGIN if left is None else left, top)
+        imgui.set_next_window_size(self.SIDEBAR - 2 * self.MARGIN if width is None else width,
+                                   height)
+        imgui.begin(f"Panel {number} | {title}", flags=self.PANEL_FLAGS)
+        imgui.text_colored(f"{number:02d}", *accent)
+        imgui.same_line()
+        imgui.push_font(self.heading_font)
+        imgui.text(title)
+        imgui.pop_font()
+
+    def sidebar_header(self):
+        imgui.set_next_window_position(self.MARGIN, 8)
+        imgui.set_next_window_size(self.SIDEBAR - 2 * self.MARGIN, 36)
+        imgui.set_next_window_bg_alpha(0)
+        imgui.begin("Control Studio", flags=self.PANEL_FLAGS | imgui.WINDOW_NO_INPUTS)
+        imgui.push_font(self.heading_font)
+        imgui.text("FFW-SH5")
+        imgui.pop_font()
+        imgui.same_line()
+        imgui.text_colored("/  CONTROL STUDIO", *MUTED)
+        imgui.end()
 
     def scroll(self, window, x, y):
         self.renderer.scroll_callback(window, x, y)
@@ -124,10 +147,15 @@ class ControlWindow:
 
     def hand_panel(self, side, number, top):
         session = self.session
-        flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE
-        imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, 205)
-        imgui.begin(f"Panel {number} | {side.title()} hand", flags=flags)
+        accent = RIGHT if side == "right" else LEFT
+        self.begin_panel(number, f"{side.title()} hand", top, 180, accent)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("World XYZ / rotation from initial hand")
+        imgui.same_line(position=imgui.get_window_width() - 96)
+        state = ("JOINT MODE" if session.control_mode == "JOINT" else
+                 "ACTIVE" if session.active_side == side else "XYZ HOLD")
+        imgui.text_colored(state, *(accent if state == "ACTIVE" else MUTED))
+        imgui.spacing()
         if session.control_mode == "JOINT":
             imgui.text_wrapped("Hand targets paused. Disable Direct joints in panel 5 to resume.")
             measured = session.robot.pose(session.data, side).position
@@ -135,12 +163,12 @@ class ControlWindow:
                 imgui.text(f"Actual {label}: {value:.3f} m")
             imgui.end()
             return
-        imgui.text_colored("ACTIVE" if session.active_side == side else "XYZ hold / rotation free",
-                           0.35, 0.8, 1.0)
         position = session.targets[side].position.copy()
         angles = session.rpy[side].copy()
         changed = False
-        imgui.push_item_width(215)
+        imgui.push_item_width(248)
+        imgui.push_style_color(imgui.COLOR_SLIDER_GRAB, *accent, 0.85)
+        imgui.push_style_color(imgui.COLOR_SLIDER_GRAB_ACTIVE, *accent, 1)
         for index, label in enumerate(("X (m)", "Y (m)", "Z (m)")):
             minimum, maximum = ((-0.8, 0.9), (-1.0, 1.0), (0.15, 1.65))[index]
             edited, position[index] = imgui.slider_float(label, float(position[index]),
@@ -153,40 +181,39 @@ class ControlWindow:
             angles[index] = np.clip(angles[index], -180, 180)
             changed |= edited
         imgui.pop_item_width()
-        imgui.text("World XYZ / rotation from initial hand")
+        imgui.pop_style_color(2)
         imgui.end()
         if changed:
             session.set_target(side, position, angles)
 
     def finger_panel(self, side, number, top):
-        imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, 95)
-        imgui.begin(f"Panel {number} | {side.title()} fingers", flags=(imgui.WINDOW_NO_MOVE
-                    | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
+        accent = RIGHT if side == "right" else LEFT
+        self.begin_panel(number, f"{side.title()} fingers", top, 104, accent)
         if self.session.control_mode == "JOINT":
             imgui.text_wrapped("Finger presets paused. Individual joints are controlled in panel 5.")
             imgui.end()
             return
         held = self.session.fingers.held_positions[side] is not None
-        imgui.text("Individual pose held" if held else "Thumb: 0 = outward / 1 = curl")
+        imgui.text_disabled("Individual pose held" if held else "0  Open / outward     1  Curl")
         values = self.session.fingers.targets[side].copy()
         changed = False
-        imgui.push_item_width(215)
+        imgui.push_item_width(248)
+        imgui.push_style_color(imgui.COLOR_SLIDER_GRAB, *accent, 0.85)
+        imgui.push_style_color(imgui.COLOR_SLIDER_GRAB_ACTIVE, *accent, 1)
         for index, label in enumerate(("Thumb", "Four fingers")):
             edited, values[index] = imgui.slider_float(label, float(values[index]), 0, 1, format="%.2f")
             values[index] = np.clip(values[index], 0, 1)
             changed |= edited
         imgui.pop_item_width()
+        imgui.pop_style_color(2)
         imgui.end()
         if changed:
             self.session.set_finger_targets(side, *values)
 
     def joint_panel(self, top):
         height = glfw.get_window_size(self.window)[1]
-        imgui.set_next_window_position(0, top)
-        imgui.set_next_window_size(self.SIDEBAR, max(140, height - top))
-        imgui.begin("Panel 5 | Joint monitor", flags=(imgui.WINDOW_NO_MOVE
-                    | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
+        self.begin_panel(5, "Joint monitor", top, height - top - self.MARGIN, MUTED)
+        imgui.spacing()
         if imgui.button("Resume" if self.paused else "Pause"):
             self.paused = not self.paused
             self.session.set_paused(self.paused)
@@ -201,9 +228,9 @@ class ControlWindow:
         if changed:
             self.session.set_control_mode("JOINT" if direct else "IK")
         direct = self.session.control_mode == "JOINT"
-        imgui.text("JOINT: Cartesian holds off" if direct else
-                   f"{len(self.session.joints.names)} joints | hover: position / speed / force")
-        imgui.push_item_width(245)
+        imgui.text_disabled("JOINT: Cartesian holds off" if direct else
+                            f"{len(self.session.joints.names)} joints / hover for details")
+        imgui.push_item_width(290)
         _, self.joint_filter = imgui.input_text("Filter", self.joint_filter, 128)
         imgui.pop_item_width()
         imgui.begin_child("Joint rows", 0, 0)
@@ -213,13 +240,12 @@ class ControlWindow:
                 continue
             count += 1
             imgui.push_id(state["name"])
-            color = ((0.9, 0.5, 0.5) if "_r_" in state["name"] else
-                     (0.4, 0.8, 0.6) if "_l_" in state["name"] else (0.5, 0.75, 0.95))
+            color = RIGHT if "_r_" in state["name"] else LEFT if "_l_" in state["name"] else TEXT
             imgui.text_colored(state["name"], *color)
             hovered = imgui.is_item_hovered()
-            imgui.same_line(position=166)
+            imgui.same_line(position=190)
             if direct:
-                imgui.push_item_width(130)
+                imgui.push_item_width(140)
                 edited, value = imgui.slider_float("##target", state["target"], state["lower"],
                                                    state["upper"], format="v=%.2f" if state["velocity_controlled"] else "%.3f")
                 imgui.pop_item_width()
@@ -230,7 +256,7 @@ class ControlWindow:
                 actual = state["velocity"] if state["velocity_controlled"] else state["position"]
                 fraction = np.clip((actual - state["lower"]) / (state["upper"] - state["lower"]), 0, 1)
                 prefix = "v=" if state["velocity_controlled"] else ""
-                imgui.progress_bar(float(fraction), (130, 16), f"{prefix}{actual:.3f}")
+                imgui.progress_bar(float(fraction), (140, 19), f"{prefix}{actual:.3f}")
             if hovered or imgui.is_item_hovered():
                 input_unit = "rad/s" if state["velocity_controlled"] else state["unit"]
                 force_unit = "N" if state["unit"] == "m" else "Nm"
@@ -247,30 +273,36 @@ class ControlWindow:
     def status_panel(self):
         metrics = self.session.metrics()
         height = glfw.get_window_size(self.window)[1]
-        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 160))
-        imgui.set_next_window_size(350, 150)
-        imgui.set_next_window_bg_alpha(0.65)
-        imgui.begin("Panel 6 | Simulation status", flags=(imgui.WINDOW_NO_MOVE
-                    | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
+        self.begin_panel(6, "Simulation status", height - 194, 182,
+                         left=self.SIDEBAR + 20, width=330)
+        imgui.spacing()
         if metrics["ik_err"] is None:
-            imgui.text("ik_err (R): N/A in joint mode")
+            self.metric_row("ik_err (R)", "N/A in joint mode")
         else:
-            imgui.text(f"ik_err (R): {metrics['ik_err'] * 1000:.2f} mm")
+            self.metric_row("ik_err (R)", f"{metrics['ik_err'] * 1000:.2f} mm", RIGHT)
             rotation_error = metrics["right_ik_orientation_error_deg"]
-            imgui.text("Right rotation: free" if rotation_error is None else
-                       f"Right IK rotation: {rotation_error:.2f} deg")
-        imgui.text(f"sim_time: {metrics['sim_time']:.2f} s")
-        imgui.text(f"wall_time: {metrics['wall_time']:.2f} s")
-        imgui.text(f"loop_freq: {metrics['loop_freq']:.1f} Hz")
-        imgui.text(f"loop_freq (ema): {metrics['loop_freq_ema']:.1f} Hz")
+            self.metric_row("Right rotation" if rotation_error is None else "Right IK rotation",
+                            "free" if rotation_error is None else f"{rotation_error:.2f} deg", RIGHT)
+        self.metric_row("sim_time", f"{metrics['sim_time']:.2f} s")
+        self.metric_row("wall_time", f"{metrics['wall_time']:.2f} s")
+        self.metric_row("loop_freq", f"{metrics['loop_freq']:.1f} Hz")
+        self.metric_row("loop_freq (ema)", f"{metrics['loop_freq_ema']:.1f} Hz")
         imgui.end()
 
+    def metric_row(self, label, value, color=TEXT):
+        imgui.text_colored(label, *MUTED)
+        value_left = imgui.get_window_width() - 12 - imgui.calc_text_size(value)[0]
+        imgui.same_line(position=value_left)
+        imgui.text_colored(value, *color)
+        imgui.spacing()
+
     def panels(self):
-        self.hand_panel("right", 1, 0)
-        self.finger_panel("right", 2, 207)
-        self.hand_panel("left", 3, 304)
-        self.finger_panel("left", 4, 511)
-        self.joint_panel(608)
+        self.sidebar_header()
+        self.hand_panel("right", 1, 48)
+        self.finger_panel("right", 2, 236)
+        self.hand_panel("left", 3, 348)
+        self.finger_panel("left", 4, 536)
+        self.joint_panel(648)
         self.status_panel()
 
     def run(self, frames=0, screenshot=None):
@@ -298,7 +330,7 @@ class ControlWindow:
                 window_width = max(1, glfw.get_window_size(self.window)[0])
                 sidebar = round(self.SIDEBAR * width / window_width)
                 GL.glViewport(0, 0, width, height)
-                GL.glClearColor(0.06, 0.07, 0.08, 1)
+                GL.glClearColor(*BACKGROUND)
                 GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
                 mujoco.mjv_updateScene(self.session.robot.model, self.session.data, self.option,
                                        None, self.camera, mujoco.mjtCatBit.mjCAT_ALL, self.scene)

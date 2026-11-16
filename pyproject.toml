@@ -16,5 +16,8 @@ ffw-control = "ffw_control.app:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"ffw_control.ui" = ["fonts/*.ttf", "fonts/LICENSE.txt"]
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
