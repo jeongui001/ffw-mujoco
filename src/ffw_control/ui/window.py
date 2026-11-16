@@ -61,7 +61,6 @@ class ControlWindow:
         self.cursor = glfw.get_cursor_pos(self.window)
         self.paused = False
         self.joint_filter = ""
-        self.pickup_error = ""
         glfw.set_scroll_callback(self.window, self.scroll)
         style = imgui.get_style()
         style.window_rounding = 5
@@ -197,7 +196,6 @@ class ControlWindow:
             from ffw_control.simulation.session import ControlSession
             self.session = ControlSession()
             self.paused = False
-            self.pickup_error = ""
         imgui.same_line()
         changed, direct = imgui.checkbox("Direct joints", self.session.control_mode == "JOINT")
         if changed:
@@ -249,8 +247,8 @@ class ControlWindow:
     def status_panel(self):
         metrics = self.session.metrics()
         height = glfw.get_window_size(self.window)[1]
-        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 395))
-        imgui.set_next_window_size(350, 385)
+        imgui.set_next_window_position(self.SIDEBAR + 10, max(10, height - 160))
+        imgui.set_next_window_size(350, 150)
         imgui.set_next_window_bg_alpha(0.65)
         imgui.begin("Panel 6 | Simulation status", flags=(imgui.WINDOW_NO_MOVE
                     | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_COLLAPSE))
@@ -265,33 +263,6 @@ class ControlWindow:
         imgui.text(f"wall_time: {metrics['wall_time']:.2f} s")
         imgui.text(f"loop_freq: {metrics['loop_freq']:.1f} Hz")
         imgui.text(f"loop_freq (ema): {metrics['loop_freq_ema']:.1f} Hz")
-        imgui.separator()
-        paused = " | PAUSED" if metrics["paused"] else ""
-        imgui.text(f"{metrics['control_mode']} / {metrics['mode']}{paused}")
-        imgui.text_wrapped(metrics["status"])
-        if metrics["control_mode"] == "IK":
-            imgui.text(f"Actual {metrics['active_hand']}: {metrics['position_error_m']*1000:.2f} mm / {metrics['orientation_error_deg']:.2f} deg")
-            imgui.text(f"Other hand XYZ error: {metrics['held_position_error_m']*1000:.2f} mm")
-        imgui.text(f"Lift: {metrics['lift_m']:.4f} m | saturated: {metrics['saturated_actuators']}")
-        imgui.text(f"Compute: {metrics['compute_ms']:.1f} ms")
-        imgui.separator()
-        for side, can in metrics["objects"].items():
-            imgui.text(f"{side.title()} can: {can['state']} | {can['clearance_m'] * 1000:.0f} mm")
-        for side in ("right", "left"):
-            if side == "left":
-                imgui.same_line()
-            if imgui.button(f"Pick {side} can"):
-                try:
-                    self.session.start_grasp_demo(side)
-                    self.pickup_error = ""
-                except ValueError as error:
-                    self.pickup_error = str(error)
-        if metrics["grasp_demo"] is not None:
-            imgui.text_wrapped(f"Pickup {metrics['grasp_demo']['side']}: {metrics['grasp_demo']['message']}")
-            if self.session.grasp_demo.active and imgui.button("Cancel sequence"):
-                self.session.cancel_grasp_demo()
-        if self.pickup_error:
-            imgui.text_wrapped(self.pickup_error)
         imgui.end()
 
     def panels(self):
